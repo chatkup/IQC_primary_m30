@@ -716,7 +716,7 @@
                                         </option>
                                         ${processedData?.stations.map(station => 
                                             `<option value="${station}" ${station === selectedStation ? 'selected' : ''}>
-                                                รพ.สต.${station}
+                                                ${station}
                                             </option>`
                                         ).join('')}
                                     </select>
@@ -1127,4 +1127,5 @@
         }
     </script>
 </body>
+
 </html>
