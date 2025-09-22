@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบแสดงผลการควบคุมคุณภาพภายใน (IQC) - รพ.สต. เครือข่ายมวงสามสิบ</title>
+    <title>ระบบแสดงผลการควบคุมคุณภาพภายใน (IQC) - รพ.สต. เครือข่ายม่วงสามสิบ</title>
     
     <!-- Tailwind CSS -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
@@ -81,8 +81,8 @@
         // Application State
         let selectedStation = '';
         let selectedFiscalYear = 'all';
-        let selectedMeanSDMode = 'station'; // โหมดการคำนวณ Mean/SD
-        let customMeanSD = { // ค่า Mean/SD ที่ admin กำหนด
+        let selectedMeanSDMode = 'custom'; // เปลี่ยนเป็น custom เป็น default
+        let customMeanSD = { // ค่า Mean/SD ที่โหลดจาก Google Sheets
             level1: { mean: 50, sd: 5 },
             level2: { mean: 100, sd: 10 },
             level3: { mean: 200, sd: 20 }
@@ -97,7 +97,7 @@
         // URLs
         const API_URL = 'https://script.google.com/macros/s/AKfycbxYvNAGA_93cIBPj_V78qVjn9iFZekiGuyAKoYJ4A29Jb8Nt9wci60A4vCyjR2nKXdT/exec';
 
-        // ฟังก์ชันสำหรับโหลดและบันทึก Config
+        // ฟังก์ชันสำหรับโหลด Config
         async function loadConfig() {
             try {
                 console.log('Loading config from server...');
@@ -127,35 +127,6 @@
             }
         }
 
-        async function saveConfigToServer(level, type, value) {
-            try {
-                console.log('Saving config to server:', level, type, value);
-                
-                // อัปเดตค่าใน customMeanSD ก่อน
-                if (customMeanSD[level] && (type === 'mean' || type === 'sd')) {
-                    customMeanSD[level][type] = parseFloat(value) || 0;
-                }
-                
-                // บันทึกไปยัง server
-                const url = `${API_URL}?action=updateConfig&level=${level}&mean=${customMeanSD[level].mean}&sd=${customMeanSD[level].sd}`;
-                const response = await fetch(url, {
-                    method: 'GET',
-                    mode: 'cors'
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                const result = await response.json();
-                console.log('Config save result:', result);
-                
-                return result.success;
-            } catch (error) {
-                console.error('Error saving config:', error);
-                return false;
-            }
-        }
         const SHEETS_URL = 'https://docs.google.com/spreadsheets/d/1p6SKRwyrP5KiAWWsGWcAGvgTTabMu9dDNtZH1xTNdSM/edit?resourcekey=&gid=1214339607#gid=1214339607';
 
         // Empty data structure
@@ -297,24 +268,6 @@
             console.log('Selected Mean/SD mode changed to:', mode);
             updateCharts();
             render();
-        }
-
-        function setCustomMeanSD(level, type, value) {
-            if (customMeanSD[level] && (type === 'mean' || type === 'sd')) {
-                // บันทึกไปยัง server
-                saveConfigToServer(level, type, value).then(success => {
-                    if (success) {
-                        console.log('Config saved successfully');
-                        if (selectedMeanSDMode === 'custom') {
-                            updateCharts();
-                        }
-                    } else {
-                        console.error('Failed to save config');
-                        // คืนค่าเดิมหากบันทึกไม่สำเร็จ
-                        alert('ไม่สามารถบันทึกค่าได้ กรุณาลองใหม่อีกครั้ง');
-                    }
-                });
-            }
         }
 
         function setAutoRefresh(value) {
@@ -470,21 +423,21 @@
             
             switch (selectedMeanSDMode) {
                 case 'station':
-                    // โหมด 1: ใช้เฉพาะสถานีที่เลือก
+                    // โหมด 2: ใช้เฉพาะสถานีที่เลือก
                     const stationData = getChartData(level);
                     if (stationData.length === 0) return null;
                     values = stationData.map(d => d.value).filter(v => v !== null && !isNaN(v));
                     break;
                     
                 case 'all':
-                    // โหมด 2: ใช้ข้อมูลทุกสถานี
+                    // โหมด 3: ใช้ข้อมูลทุกสถานี
                     const allData = getAllStationsChartData(level);
                     if (allData.length === 0) return null;
                     values = allData.map(d => d.value).filter(v => v !== null && !isNaN(v));
                     break;
                     
                 case 'custom':
-                    // โหมด 3: ใช้ค่าที่ admin กำหนด
+                    // โหมด 1: ใช้ค่าจาก Google Sheets (กำหนดเอง)
                     const customData = customMeanSD[level];
                     if (!customData) return null;
                     return {
@@ -690,52 +643,6 @@
             link.click();
         }
 
-        // ฟังก์ชันสำหรับสร้าง Custom Mean/SD Panel
-        function generateCustomMeanSDPanel() {
-            if (selectedMeanSDMode !== 'custom') return '';
-            
-            const levelNames = {
-                'level1': 'Level 1 (Low)',
-                'level2': 'Level 2 (Normal)', 
-                'level3': 'Level 3 (High)'
-            };
-            
-            let panelHTML = `
-                <div class="bg-gray-50 p-4 rounded-lg mt-4">
-                    <h4 class="font-semibold text-gray-700 mb-3">กำหนดค่า Mean และ SD เอง:</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            `;
-            
-            ['level1', 'level2', 'level3'].forEach(level => {
-                panelHTML += `
-                    <div class="bg-white p-3 rounded border">
-                        <h5 class="font-medium text-gray-600 mb-2">${levelNames[level]}</h5>
-                        <div class="space-y-2">
-                            <div>
-                                <label class="block text-sm text-gray-600">Mean:</label>
-                                <input type="number" value="${customMeanSD[level].mean}" 
-                                    onchange="setCustomMeanSD('${level}', 'mean', this.value)"
-                                    class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-                            </div>
-                            <div>
-                                <label class="block text-sm text-gray-600">SD:</label>
-                                <input type="number" value="${customMeanSD[level].sd}" 
-                                    onchange="setCustomMeanSD('${level}', 'sd', this.value)"
-                                    class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-            
-            panelHTML += `
-                    </div>
-                </div>
-            `;
-            
-            return panelHTML;
-        }
-
         // Render Function
         function render() {
             const root = document.getElementById('root');
@@ -835,24 +742,67 @@
                             <!-- Mean/SD Mode Selection -->
                             <div class="border-t pt-4">
                                 <div class="flex flex-col gap-4">
-                                    <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                                        <h3 class="text-lg font-semibold text-gray-700 whitespace-nowrap">การคำนวณ Mean และ SD:</h3>
-                                        <select onchange="setSelectedMeanSDMode(this.value)" 
-                                            class="px-3 py-2 border border-gray-300 rounded transition-all">
-                                            <option value="station" ${selectedMeanSDMode === 'station' ? 'selected' : ''}>
-                                                ใช้เฉพาะ รพ.สต.ที่เลือก
-                                            </option>
-                                            <option value="all" ${selectedMeanSDMode === 'all' ? 'selected' : ''}>
-                                                ใช้ข้อมูลทุก รพ.สต.รวมกัน
-                                            </option>
-                                            <option value="custom" ${selectedMeanSDMode === 'custom' ? 'selected' : ''}>
-                                                ใช้ค่าที่กำหนดเอง
-                                            </option>
-                                        </select>
+                                    <h3 class="text-lg font-semibold text-gray-700">การคำนวณ Mean และ SD:</h3>
+                                    
+                                    <!-- Radio Button Options -->
+                                    <div class="flex flex-col sm:flex-row gap-4">
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="radio" name="meanSDMode" value="custom" 
+                                                ${selectedMeanSDMode === 'custom' ? 'checked' : ''}
+                                                onchange="setSelectedMeanSDMode(this.value)"
+                                                class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                                            <span class="text-sm font-medium text-gray-700">กำหนดเอง</span>
+                                        </label>
+                                        
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="radio" name="meanSDMode" value="station" 
+                                                ${selectedMeanSDMode === 'station' ? 'checked' : ''}
+                                                onchange="setSelectedMeanSDMode(this.value)"
+                                                class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                                            <span class="text-sm font-medium text-gray-700">ใช้เฉพาะ รพ.สต.ที่เลือก</span>
+                                        </label>
+                                        
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="radio" name="meanSDMode" value="all" 
+                                                ${selectedMeanSDMode === 'all' ? 'checked' : ''}
+                                                onchange="setSelectedMeanSDMode(this.value)"
+                                                class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                                            <span class="text-sm font-medium text-gray-700">ใช้ข้อมูลทุก รพ.สต.รวมกัน</span>
+                                        </label>
                                     </div>
                                     
-                                    <!-- Custom Mean/SD Panel -->
-                                    ${generateCustomMeanSDPanel()}
+                                    <!-- แสดงข้อมูล Mean/SD ที่ใช้งาน (เฉพาะโหมดกำหนดเอง) -->
+                                    ${selectedMeanSDMode === 'custom' ? `
+                                    <div class="bg-blue-50 p-4 rounded-lg">
+                                        <h4 class="font-semibold text-blue-700 mb-3">ค่า Mean และ SD ที่กำหนดไว้:</h4>
+                                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                            <div class="bg-white p-3 rounded border">
+                                                <h5 class="font-medium text-gray-600 mb-2">Level 1 (Low)</h5>
+                                                <div class="space-y-1">
+                                                    <div>Mean: <span class="font-mono">${customMeanSD.level1.mean}</span></div>
+                                                    <div>SD: <span class="font-mono">${customMeanSD.level1.sd}</span></div>
+                                                </div>
+                                            </div>
+                                            <div class="bg-white p-3 rounded border">
+                                                <h5 class="font-medium text-gray-600 mb-2">Level 2 (Normal)</h5>
+                                                <div class="space-y-1">
+                                                    <div>Mean: <span class="font-mono">${customMeanSD.level2.mean}</span></div>
+                                                    <div>SD: <span class="font-mono">${customMeanSD.level2.sd}</span></div>
+                                                </div>
+                                            </div>
+                                            <div class="bg-white p-3 rounded border">
+                                                <h5 class="font-medium text-gray-600 mb-2">Level 3 (High)</h5>
+                                                <div class="space-y-1">
+                                                    <div>Mean: <span class="font-mono">${customMeanSD.level3.mean}</span></div>
+                                                    <div>SD: <span class="font-mono">${customMeanSD.level3.sd}</span></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p class="text-xs text-blue-600 mt-2">
+                                            * ค่าเหล่านี้โหลดจาก Google Sheets (Config_MeanSD) และสามารถแก้ไขได้โดยการแก้ไขใน Google Sheets โดยตรง
+                                        </p>
+                                    </div>
+                                    ` : ''}
                                 </div>
                             </div>
                         </div>
