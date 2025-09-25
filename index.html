@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบแสดงผลการควบคุมคุณภาพภายใน (IQC) - เครือข่ายม่วงสามสิบ</title>
+    <title>ระบบแสดงผลการควบคุมคุณภาพภายใน (IQC) - เครือข่ายมวงสามสิบ</title>
 
     <!-- Tailwind CSS -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
@@ -113,6 +113,7 @@
         let autoRefresh = true;
         let error = null;
         let charts = {};
+        let showGlucoseTable = false;
 
         // Proxy Server URL
         const API_BASE_URL = 'https://iqc-proxy-server.onrender.com';
@@ -160,7 +161,7 @@
     urineData: []
     };
 
-    // ฟังก์ชันสำหรับคำนวณปีงบประมาณ
+    // ฟังก์ชันสำหรับคำนวดปีงบประมาณ
     function getBuddhistFiscalYear(date) {
     if (!date || isNaN(date.getTime())) return null;
 
@@ -295,6 +296,11 @@
 
     function setAutoRefresh(value) {
     autoRefresh = value;
+    render();
+    }
+
+    function toggleGlucoseTable() {
+    showGlucoseTable = !showGlucoseTable;
     render();
     }
 
@@ -491,6 +497,63 @@
     };
     }
 
+    // ฟังก์ชันสำหรับกำหนดสีของจุดข้อมูล
+    function getPointColors(chartData, statistics) {
+    if (!statistics) return chartData.map(() => '#1f2937');
+
+    const mean = parseFloat(statistics.mean);
+    const plus2sd = parseFloat(statistics.plus2sd);
+    const minus2sd = parseFloat(statistics.minus2sd);
+    const plus3sd = parseFloat(statistics.plus3sd);
+    const minus3sd = parseFloat(statistics.minus3sd);
+
+    return chartData.map(point => {
+    const value = point.value;
+    
+    // ตรวจสอบช่วงค่าและกำหนดสี
+    if (value > plus3sd || value < minus3sd) {
+        return '#dc2626'; // สีแดงสำหรับ ±3SD
+    } else if (value > plus2sd || value < minus2sd) {
+        return '#f97316'; // สีส้มสำหรับ ±2SD
+    } else {
+        return '#1f2937'; // สีดำปกติ
+    }
+    });
+    }
+
+    // ฟังก์ชันสำหรับกำหนดสีและสถานะของแต่ละแถวในตาราง
+    function getRowColorAndStatus(value, statistics) {
+    if (!statistics || value === null || value === undefined) {
+    return { color: '', bgColor: '', status: '-' };
+    }
+
+    const mean = parseFloat(statistics.mean);
+    const plus2sd = parseFloat(statistics.plus2sd);
+    const minus2sd = parseFloat(statistics.minus2sd);
+    const plus3sd = parseFloat(statistics.plus3sd);
+    const minus3sd = parseFloat(statistics.minus3sd);
+
+    if (value > plus3sd || value < minus3sd) {
+    return { 
+        color: 'text-red-800', 
+        bgColor: 'bg-red-100', 
+        status: '⚠️ นอกช่วง ±3SD' 
+    };
+    } else if (value > plus2sd || value < minus2sd) {
+    return { 
+        color: 'text-orange-800', 
+        bgColor: 'bg-orange-100', 
+        status: '⚠️ นอกช่วง ±2SD' 
+    };
+    } else {
+    return { 
+        color: 'text-gray-800', 
+        bgColor: 'bg-white', 
+        status: '✓ ปกติ' 
+    };
+    }
+    }
+
     function updateCharts() {
     const levels = ['level1', 'level2', 'level3'];
     const levelNames = {
@@ -523,6 +586,9 @@
     }
 
     try {
+    // กำหนดสีของจุดข้อมูลตามช่วงค่า
+    const pointColors = getPointColors(chartData, statistics);
+    
     // Create new chart
     charts[level] = new Chart(ctx, {
     type: 'line',
@@ -532,12 +598,13 @@
     label: 'ค่าผลตรวจ',
     data: chartData.map(d => d.value),
     borderColor: '#1f2937',
-    backgroundColor: '#1f2937',
-    pointBackgroundColor: '#1f2937',
-    pointBorderColor: '#1f2937',
+    backgroundColor: pointColors, // ใช้สีที่แตกต่างกันสำหรับแต่ละจุด
+    pointBackgroundColor: pointColors, // ใช้สีที่แตกต่างกันสำหรับแต่ละจุด
+    pointBorderColor: pointColors, // ใช้สีที่แตกต่างกันสำหรับแต่ละจุด
     pointRadius: 4,
     pointHoverRadius: 6,
-    borderWidth: 2
+    borderWidth: 2,
+    showLine: true // แสดงเส้นเชื่อมจุด
     }].concat(statistics ? [
     {
     label: 'Mean',
@@ -598,11 +665,29 @@
     afterLabel: function(context) {
     if (context.datasetIndex === 0) {
     const dataPoint = chartData[context.dataIndex];
+    const value = dataPoint.value;
+    
+    // แสดงสถานะของจุดข้อมูล
+    let status = 'ปกติ (อยู่ในช่วง ±2SD)';
+    if (statistics) {
+    const plus3sd = parseFloat(statistics.plus3sd);
+    const minus3sd = parseFloat(statistics.minus3sd);
+    const plus2sd = parseFloat(statistics.plus2sd);
+    const minus2sd = parseFloat(statistics.minus2sd);
+    
+    if (value > plus3sd || value < minus3sd) {
+        status = '⚠️ อยู่นอกช่วง ±3SD (สีแดง)';
+    } else if (value > plus2sd || value < minus2sd) {
+        status = '⚠️ อยู่นอกช่วง ±2SD (สีส้ม)';
+    }
+    }
+    
     const labels = [
     `วันที่: ${dataPoint.date}`,
     `Lot: ${dataPoint.lot}`,
     `ยี่ห้อ: ${dataPoint.brand}`,
-    `ผู้ทดสอบ: ${dataPoint.tester}`
+    `ผู้ทดสอบ: ${dataPoint.tester}`,
+    `สถานะ: ${status}`
     ];
 
     // แสดงชื่อสถานีถ้าเลือก "ทุกหน่วยงาน"
@@ -613,6 +698,15 @@
     return labels;
     }
     return '';
+    }
+    }
+    },
+    legend: {
+    display: true,
+    labels: {
+    filter: function(legendItem, chartData) {
+    // เพิ่ม legend สำหรับสีของจุด
+    return true;
     }
     }
     }
@@ -762,13 +856,27 @@
                             <span class="w-4 h-4 mr-1">${DownloadIcon}</span>
                             ส่งออก CSV
                         </button>
+
+                        <button onclick="toggleGlucoseTable()"
+                            class="flex items-center px-3 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-all ${showGlucoseTable ? 'bg-blue-100 border-blue-300' : ''}">
+                            <span class="w-4 h-4 mr-1">
+                                <svg class="icon" viewBox="0 0 24 24">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                    <line x1="9" y1="3" x2="9" y2="21"/>
+                                    <line x1="15" y1="3" x2="15" y2="21"/>
+                                    <line x1="3" y1="9" x2="21" y2="9"/>
+                                    <line x1="3" y1="15" x2="21" y2="15"/>
+                                </svg>
+                            </span>
+                            ${showGlucoseTable ? 'ซ่อนตาราง' : 'แสดงตาราง'}
+                        </button>
                     </div>
                 </div>
 
                 <!-- Mean/SD Mode Selection -->
                 <div class="border-t pt-4">
                     <div class="flex flex-col gap-4">
-                        <h3 class="text-lg font-semibold text-gray-700">การคำนวณ Mean และ SD:</h3>
+                        <h3 class="text-lg font-semibold text-gray-700">การคำนวด Mean และ SD:</h3>
 
                         <!-- Radio Button Options -->
                         <div class="flex flex-col sm:flex-row gap-4">
@@ -827,10 +935,128 @@
                             </p>
                         </div>
                         ` : ''}
+
+                        <!-- แสดงคำอธิบายสีจุดข้อมูล -->
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="font-semibold text-gray-700 mb-3">ความหมายสีของจุดข้อมูลบนกราฟ:</h4>
+                            <div class="flex flex-wrap gap-4 text-sm">
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-4 h-4 bg-gray-800 rounded-full"></div>
+                                    <span>สีดำ: อยู่ในช่วงปกติ (±2SD)</span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-4 h-4 bg-orange-500 rounded-full"></div>
+                                    <span>สีส้ม: อยู่นอกช่วง ±2SD</span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-4 h-4 bg-red-600 rounded-full"></div>
+                                    <span>สีแดง: อยู่นอกช่วง ±3SD</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- Glucose Data Table (แสดงเมื่อ showGlucoseTable = true) -->
+        ${showGlucoseTable && processedData ? `
+        <div class="bg-white rounded-lg shadow">
+            <div class="p-6">
+                <h2 class="text-xl font-semibold text-blue-700 mb-4">
+                    ตารางข้อมูล Glucose Strip
+                </h2>
+                <div class="overflow-x-auto">
+                    ${['level1', 'level2', 'level3'].map(level => {
+                        const levelNames = {
+                            'level1': 'Level 1 (Low)',
+                            'level2': 'Level 2 (Normal)', 
+                            'level3': 'Level 3 (High)'
+                        };
+                        const chartData = getChartData(level);
+                        const statistics = getStatistics(level);
+                        
+                        if (chartData.length === 0) return '';
+                        
+                        return `
+                        <div class="mb-8">
+                            <h3 class="text-lg font-semibold text-blue-600 mb-3">${levelNames[level]}</h3>
+                            ${statistics ? `
+                            <div class="mb-4 p-3 bg-blue-50 rounded-lg">
+                                <div class="grid grid-cols-2 md:grid-cols-6 gap-2 text-sm">
+                                    <div class="text-center">
+                                        <div class="font-semibold text-blue-700">Mean</div>
+                                        <div>${statistics.mean}</div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div class="font-semibold text-blue-700">SD</div>
+                                        <div>${statistics.sd}</div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div class="font-semibold text-green-700">±2SD</div>
+                                        <div>${statistics.minus2sd} - ${statistics.plus2sd}</div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div class="font-semibold text-red-700">±3SD</div>
+                                        <div>${statistics.minus3sd} - ${statistics.plus3sd}</div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div class="font-semibold text-blue-700">CV%</div>
+                                        <div>${statistics.cv}</div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div class="font-semibold text-blue-700">จำนวน</div>
+                                        <div>${chartData.length}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            ` : ''}
+                            <table class="w-full border-collapse border border-gray-300 mb-6">
+                                <thead>
+                                    <tr class="bg-blue-100">
+                                        <th class="border border-gray-300 p-2">ลำดับ</th>
+                                        <th class="border border-gray-300 p-2">วันที่ทดสอบ</th>
+                                        <th class="border border-gray-300 p-2">ค่าผลตรวจ (mg/dL)</th>
+                                        <th class="border border-gray-300 p-2">สถานะ</th>
+                                        <th class="border border-gray-300 p-2">หน่วยงาน</th>
+                                        <th class="border border-gray-300 p-2">ยี่ห้อ</th>
+                                        <th class="border border-gray-300 p-2">Lot</th>
+                                        <th class="border border-gray-300 p-2">ผู้ทดสอบ</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${chartData.map((item, index) => {
+                                        const colorStatus = getRowColorAndStatus(item.value, statistics);
+                                        return `
+                                        <tr class="hover:bg-gray-50 ${colorStatus.bgColor}">
+                                            <td class="border border-gray-300 p-2 text-center font-medium">${item.index}</td>
+                                            <td class="border border-gray-300 p-2 text-center">${item.date}</td>
+                                            <td class="border border-gray-300 p-2 text-center font-bold ${colorStatus.color}">
+                                                ${item.value !== null && item.value !== undefined ? item.value.toFixed(1) : '-'}
+                                            </td>
+                                            <td class="border border-gray-300 p-2 text-center">
+                                                <span class="px-2 py-1 rounded text-xs font-medium ${colorStatus.color === 'text-red-800' ? 'bg-red-200 text-red-800' : 
+                                                    colorStatus.color === 'text-orange-800' ? 'bg-orange-200 text-orange-800' : 
+                                                    'bg-gray-200 text-gray-800'}">
+                                                    ${colorStatus.status}
+                                                </span>
+                                            </td>
+                                            <td class="border border-gray-300 p-2 text-center">${item.station}</td>
+                                            <td class="border border-gray-300 p-2 text-center">${item.brand}</td>
+                                            <td class="border border-gray-300 p-2 text-center">${item.lot}</td>
+                                            <td class="border border-gray-300 p-2 text-center">${item.tester}</td>
+                                        </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        </div>
+        ` : ''}
 
         <!-- Levey-Jennings Charts Vertical -->
         <div class="space-y-6">
