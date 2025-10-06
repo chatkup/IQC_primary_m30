@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบแสดงผลการควบคุมคุณภาพภายใน (IQC) - เครือข่ายบริการสุขภาพอำเภอม่วงสามสิบ</title>
+    <title>ระบบแสดงผลการควบคุมคุณภาพภายใน (IQC) - เครือข่ายมวงสามสิบ</title>
 
     <!-- Tailwind CSS -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
@@ -175,6 +175,12 @@
     }
     }
 
+    // ฟังก์ชันสำหรับหาปีงบประมาณปัจจุบัน
+    function getCurrentFiscalYear() {
+    const today = new Date();
+    return getBuddhistFiscalYear(today);
+    }
+
     // ฟังก์ชันสำหรับสร้างรายการปีงบประมาณ
     function getFiscalYearOptions() {
     if (!processedData || !processedData.glucoseData.length) return [];
@@ -265,6 +271,17 @@
     console.log('Auto-selected station:', selectedStation);
     }
     }
+    
+    // ตั้งค่าปีงบประมาณปัจจุบันเป็น default ถ้ายังไม่มีการเลือก
+    if (selectedFiscalYear === 'all' && data && data.glucoseData && data.glucoseData.length > 0) {
+    const currentFY = getCurrentFiscalYear();
+    const fiscalYears = getFiscalYearOptions();
+    if (fiscalYears.includes(currentFY)) {
+    selectedFiscalYear = currentFY.toString();
+    console.log('Auto-selected current fiscal year:', selectedFiscalYear);
+    }
+    }
+    
     render();
     }
 
@@ -380,17 +397,8 @@
     // กรองข้อมูลตามปีงบประมาณ
     const filteredByYear = filterDataByFiscalYear(processedData.glucoseData, selectedFiscalYear);
 
-    let stationData;
-    if (selectedStation === 'all') {
-    // แสดงข้อมูลทุกสถานี
-    stationData = filteredByYear;
-    } else {
-    // แสดงเฉพาะสถานีที่เลือก
-    stationData = filteredByYear.filter(item => {
-    console.log('Checking item:', item.station, 'vs selected:', selectedStation);
-    return item.station === selectedStation;
-    });
-    }
+    // กรองข้อมูลตามหน่วยงาน
+    const stationData = filterDataByStation(filteredByYear);
 
     const sortedData = stationData.sort((a, b) => {
     // Sort by test date
@@ -445,6 +453,24 @@
     });
 
     return chartData;
+    }
+
+    // ฟังก์ชันสำหรับกรองข้อมูลตามหน่วยงานที่เลือก
+    function filterDataByStation(data) {
+    if (!data || data.length === 0) return [];
+    
+    if (selectedStation === 'all') {
+    return data;
+    } else if (selectedStation === 'group_hospital') {
+    // กลุ่ม รพ.ม่วงสามสิบ - ชื่อลงท้ายด้วย "รพ.ม่วงสามสิบ"
+    return data.filter(item => item.station && item.station.includes('รพ.ม่วงสามสิบ'));
+    } else if (selectedStation === 'group_other') {
+    // กลุ่มที่ไม่ใช่ รพ.ม่วงสามสิบ
+    return data.filter(item => item.station && !item.station.includes('รพ.ม่วงสามสิบ'));
+    } else {
+    // หน่วยงานเฉพาะ
+    return data.filter(item => item.station === selectedStation);
+    }
     }
 
     function getStatistics(level) {
@@ -786,7 +812,7 @@
             <h1 class="text-3xl font-bold text-gray-800 mb-2 responsive-text">
                 ระบบแสดงผลการควบคุมคุณภาพภายใน (IQC)
             </h1>
-            <p class="text-gray-600">เครือข่ายบริการสุขภาพอำเภอม่วงสามสิบ</p>
+            <p class="text-gray-600">เครือข่ายบริการสุขภาพอำเภอมวงสามสิบ</p>
 
             <!-- Status Bar -->
             <div
@@ -834,6 +860,13 @@
                             <option value="all" ${selectedStation==='all' ? 'selected' : '' }>
                                 ทุกหน่วยงาน
                             </option>
+                            <option value="group_hospital" ${selectedStation==='group_hospital' ? 'selected' : '' }>
+                                กลุ่ม รพ.ม่วงสามสิบ
+                            </option>
+                            <option value="group_other" ${selectedStation==='group_other' ? 'selected' : '' }>
+                                กลุ่ม รพ.สต.
+                            </option>
+                            <option disabled>──────────</option>
                             ${processedData?.stations.map(station =>
                             `<option value="${station}" ${station===selectedStation ? 'selected' : '' }>
                                 ${station}
@@ -1105,7 +1138,7 @@
                     </div>
                     ` : `
                     <div class="text-center py-8 text-gray-500 text-sm">
-                        ไม่พบข้อมูลสำหรับสถานีอนามัยที่เลือก
+                        ไม่พบข้อมูลสำหรับ รพ.สต.ที่เลือก
                     </div>
                     `}
                 </div>
@@ -1125,7 +1158,7 @@
                     <table class="w-full border-collapse border border-gray-300">
                         <thead>
                             <tr class="bg-purple-100">
-                                <th class="border border-gray-300 p-2">สถานีอนามัย</th>
+                                <th class="border border-gray-300 p-2">รพ.สต.</th>
                                 <th class="border border-gray-300 p-2">วันที่ทดสอบ</th>
                                 <th class="border border-gray-300 p-2">ยี่ห้อ</th>
                                 <th class="border border-gray-300 p-2">Lot No.</th>
@@ -1137,7 +1170,12 @@
                         </thead>
                         <tbody>
                             ${filterDataByFiscalYear(processedData.pregnancyData, selectedFiscalYear)
-                            .filter(item => selectedStation === 'all' || item.station === selectedStation)
+                            .filter(item => {
+                                if (selectedStation === 'all') return true;
+                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                                return item.station === selectedStation;
+                            })
                             .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate))
                             .map((item, index) => {
                             const level1OK = item.level1 === 'Negative';
@@ -1193,7 +1231,7 @@
                     <table class="w-full border-collapse border border-gray-300">
                         <thead>
                             <tr class="bg-blue-100">
-                                <th class="border border-gray-300 p-2">สถานีอนามัย</th>
+                                <th class="border border-gray-300 p-2">รพ.สต.</th>
                                 <th class="border border-gray-300 p-2">วันที่ทดสอบ</th>
                                 <th class="border border-gray-300 p-2">ยี่ห้อ</th>
                                 <th class="border border-gray-300 p-2">Lot No.</th>
@@ -1206,7 +1244,12 @@
                         </thead>
                         <tbody>
                             ${filterDataByFiscalYear(processedData.urineData, selectedFiscalYear)
-                            .filter(item => selectedStation === 'all' || item.station === selectedStation)
+                            .filter(item => {
+                                if (selectedStation === 'all') return true;
+                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                                return item.station === selectedStation;
+                            })
                             .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate))
                             .map((item, index) => {
                             const level1OK = item.proteinLevel1 === 'Negative';
@@ -1264,7 +1307,7 @@
                     <table class="w-full border-collapse border border-gray-300">
                         <thead>
                             <tr class="bg-orange-100">
-                                <th class="border border-gray-300 p-2">สถานีอนามัย</th>
+                                <th class="border border-gray-300 p-2">รพ.สต.</th>
                                 <th class="border border-gray-300 p-2">วันที่ทดสอบ</th>
                                 <th class="border border-gray-300 p-2">ยี่ห้อ</th>
                                 <th class="border border-gray-300 p-2">Lot No.</th>
@@ -1335,22 +1378,34 @@
                     <div class="bg-blue-50 p-4 rounded-lg">
                         <h3 class="font-semibold text-blue-700 mb-2">Glucose Strip</h3>
                         <p class="text-2xl font-bold text-blue-800">${filterDataByFiscalYear(processedData.glucoseData,
-                            selectedFiscalYear).filter(item => selectedStation === 'all' || item.station ===
-                            selectedStation).length}</p>
+                            selectedFiscalYear).filter(item => {
+                                if (selectedStation === 'all') return true;
+                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                                return item.station === selectedStation;
+                            }).length}</p>
                         <p class="text-sm text-blue-600">รายการทดสอบ</p>
                     </div>
                     <div class="bg-purple-50 p-4 rounded-lg">
                         <h3 class="font-semibold text-purple-700 mb-2">Pregnancy Test</h3>
                         <p class="text-2xl font-bold text-purple-800">
-                            ${filterDataByFiscalYear(processedData.pregnancyData, selectedFiscalYear).filter(item =>
-                            selectedStation === 'all' || item.station === selectedStation).length}</p>
+                            ${filterDataByFiscalYear(processedData.pregnancyData, selectedFiscalYear).filter(item => {
+                                if (selectedStation === 'all') return true;
+                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                                return item.station === selectedStation;
+                            }).length}</p>
                         <p class="text-sm text-purple-600">รายการทดสอบ</p>
                     </div>
                     <div class="bg-green-50 p-4 rounded-lg">
                         <h3 class="font-semibold text-green-700 mb-2">Urine Test</h3>
                         <p class="text-2xl font-bold text-green-800">${filterDataByFiscalYear(processedData.urineData,
-                            selectedFiscalYear).filter(item => selectedStation === 'all' || item.station ===
-                            selectedStation).length}</p>
+                            selectedFiscalYear).filter(item => {
+                                if (selectedStation === 'all') return true;
+                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                                return item.station === selectedStation;
+                            }).length}</p>
                         <p class="text-sm text-green-600">รายการทดสอบ</p>
                     </div>
                 </div>
@@ -1398,7 +1453,4 @@
     </script>
 </body>
 
-
 </html>
-
-
