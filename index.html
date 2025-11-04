@@ -864,7 +864,7 @@
                                 กลุ่ม รพ.ม่วงสามสิบ
                             </option>
                             <option value="group_other" ${selectedStation==='group_other' ? 'selected' : '' }>
-                                กลุ่ม รพ.สต.
+                                กลุ่มสถานีอนามัย
                             </option>
                             <option disabled>──────────</option>
                             ${processedData?.stations.map(station =>
@@ -1138,7 +1138,7 @@
                     </div>
                     ` : `
                     <div class="text-center py-8 text-gray-500 text-sm">
-                        ไม่พบข้อมูลสำหรับ รพ.สต.ที่เลือก
+                        ไม่พบข้อมูลสำหรับสถานีอนามัยที่เลือก
                     </div>
                     `}
                 </div>
@@ -1158,7 +1158,7 @@
                     <table class="w-full border-collapse border border-gray-300">
                         <thead>
                             <tr class="bg-purple-100">
-                                <th class="border border-gray-300 p-2">รพ.สต.</th>
+                                <th class="border border-gray-300 p-2">สถานีอนามัย</th>
                                 <th class="border border-gray-300 p-2">วันที่ทดสอบ</th>
                                 <th class="border border-gray-300 p-2">ยี่ห้อ</th>
                                 <th class="border border-gray-300 p-2">Lot No.</th>
@@ -1231,7 +1231,7 @@
                     <table class="w-full border-collapse border border-gray-300">
                         <thead>
                             <tr class="bg-blue-100">
-                                <th class="border border-gray-300 p-2">รพ.สต.</th>
+                                <th class="border border-gray-300 p-2">สถานีอนามัย</th>
                                 <th class="border border-gray-300 p-2">วันที่ทดสอบ</th>
                                 <th class="border border-gray-300 p-2">ยี่ห้อ</th>
                                 <th class="border border-gray-300 p-2">Lot No.</th>
@@ -1243,54 +1243,66 @@
                             </tr>
                         </thead>
                         <tbody>
-                            ${filterDataByFiscalYear(processedData.urineData, selectedFiscalYear)
-                            .filter(item => {
-                                if (selectedStation === 'all') return true;
-                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
-                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
-                                return item.station === selectedStation;
-                            })
-                            .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate))
-                            .map((item, index) => {
-                            const level1OK = item.proteinLevel1 === 'Negative';
-                            const level2OK = ['1+', '2+', '3+', '4+'].includes(item.proteinLevel2);
-                            const allOK = level1OK && level2OK;
+                            ${(() => {
+                                // กรองตามปีงบประมาณ
+                                const yearFiltered = filterDataByFiscalYear(processedData.urineData, selectedFiscalYear);
+                                
+                                // กรองเฉพาะที่มีข้อมูล Protein ก่อน
+                                const withProtein = yearFiltered.filter(item => item.proteinLevel1 || item.proteinLevel2);
+                                
+                                // จากนั้นค่อยกรองตามหน่วยงาน
+                                const filteredData = withProtein
+                                    .filter(item => {
+                                        if (selectedStation === 'all') return true;
+                                        if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                                        if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                                        return item.station === selectedStation;
+                                    })
+                                    .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate));
+                                
+                                if (filteredData.length === 0) {
+                                    return `<tr><td colspan="9" class="border border-gray-300 p-4 text-center text-gray-500">ไม่พบข้อมูล Urine Protein สำหรับหน่วยงานและปีงบประมาณที่เลือก</td></tr>`;
+                                }
+                                
+                                return filteredData.map((item, index) => {
+                                    const level1Value = (item.proteinLevel1 || '').toString().trim();
+                                    const level2Value = (item.proteinLevel2 || '').toString().trim();
+                                    
+                                    const level1OK = level1Value.toLowerCase() === 'negative';
+                                    const level2OK = ['1+', '2+', '3+', '4+', '1', '2', '3', '4'].includes(level2Value);
+                                    const allOK = level1OK && level2OK;
 
-                            return `
-                            <tr class="hover:bg-gray-50">
-                                <td class="border border-gray-300 p-2 font-medium">${item.station}</td>
-                                <td class="border border-gray-300 p-2">${formatThaiDate(parseThaiDate(item.testDate))}
-                                </td>
-                                <td class="border border-gray-300 p-2">${item.brand}</td>
-                                <td class="border border-gray-300 p-2">${item.lot}</td>
-                                <td class="border border-gray-300 p-2">${item.openDate ?
-                                    formatThaiDate(parseThaiDate(item.openDate)) : '-'}</td>
-                                <td class="border border-gray-300 p-2 text-center">
-                                    <span
-                                        class="px-2 py-1 rounded text-sm ${level1OK ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
-                                        ${item.proteinLevel1}
-                                    </span>
-                                </td>
-                                <td class="border border-gray-300 p-2 text-center">
-                                    <span
-                                        class="px-2 py-1 rounded text-sm ${level2OK ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
-                                        ${item.proteinLevel2}
-                                    </span>
-                                </td>
-                                <td class="border border-gray-300 p-2 text-center">
-                                    <span
-                                        class="px-2 py-1 rounded text-sm font-medium ${allOK ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
-                                        ${allOK ? '✓ ผ่าน' : '⚠ ต้องตรวจสอบ'}
-                                    </span>
-                                </td>
-                                <td class="border border-gray-300 p-2 text-sm">
-                                    ${allOK ? 'การควบคุมคุณภาพปกติ' :
-                                    (!level1OK && !level2OK) ? 'Level 1 และ 2 ผิดปกติ' :
-                                    !level1OK ? 'Level 1 ควรเป็น Negative' : 'Level 2 ควรเป็น Positive'}
-                                </td>
-                            </tr>
-                            `;
-                            }).join('')}
+                                    return `
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="border border-gray-300 p-2 font-medium">${item.station || '-'}</td>
+                                        <td class="border border-gray-300 p-2">${formatThaiDate(parseThaiDate(item.testDate))}</td>
+                                        <td class="border border-gray-300 p-2">${item.brand || '-'}</td>
+                                        <td class="border border-gray-300 p-2">${item.lot || '-'}</td>
+                                        <td class="border border-gray-300 p-2">${item.openDate ? formatThaiDate(parseThaiDate(item.openDate)) : '-'}</td>
+                                        <td class="border border-gray-300 p-2 text-center">
+                                            <span class="px-2 py-1 rounded text-sm ${level1OK ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
+                                                ${level1Value || '-'}
+                                            </span>
+                                        </td>
+                                        <td class="border border-gray-300 p-2 text-center">
+                                            <span class="px-2 py-1 rounded text-sm ${level2OK ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
+                                                ${level2Value || '-'}
+                                            </span>
+                                        </td>
+                                        <td class="border border-gray-300 p-2 text-center">
+                                            <span class="px-2 py-1 rounded text-sm font-medium ${allOK ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                                                ${allOK ? '✓ ผ่าน' : '⚠ ต้องตรวจสอบ'}
+                                            </span>
+                                        </td>
+                                        <td class="border border-gray-300 p-2 text-sm">
+                                            ${allOK ? 'การควบคุมคุณภาพปกติ' :
+                                            (!level1OK && !level2OK) ? 'Level 1 และ 2 ผิดปกติ' :
+                                            !level1OK ? 'Level 1 ควรเป็น Negative' : 'Level 2 ควรเป็น Positive'}
+                                        </td>
+                                    </tr>
+                                    `;
+                                }).join('');
+                            })()}
                         </tbody>
                     </table>
                 </div>
@@ -1307,7 +1319,7 @@
                     <table class="w-full border-collapse border border-gray-300">
                         <thead>
                             <tr class="bg-orange-100">
-                                <th class="border border-gray-300 p-2">รพ.สต.</th>
+                                <th class="border border-gray-300 p-2">สถานีอนามัย</th>
                                 <th class="border border-gray-300 p-2">วันที่ทดสอบ</th>
                                 <th class="border border-gray-300 p-2">ยี่ห้อ</th>
                                 <th class="border border-gray-300 p-2">Lot No.</th>
@@ -1329,23 +1341,23 @@
 
                             return `
                             <tr class="hover:bg-gray-50">
-                                <td class="border border-gray-300 p-2 font-medium">${item.station}</td>
+                                <td class="border border-gray-300 p-2 font-medium">${item.station || '-'}</td>
                                 <td class="border border-gray-300 p-2">${formatThaiDate(parseThaiDate(item.testDate))}
                                 </td>
-                                <td class="border border-gray-300 p-2">${item.brand}</td>
-                                <td class="border border-gray-300 p-2">${item.lot}</td>
+                                <td class="border border-gray-300 p-2">${item.brand || '-'}</td>
+                                <td class="border border-gray-300 p-2">${item.lot || '-'}</td>
                                 <td class="border border-gray-300 p-2">${item.openDate ?
                                     formatThaiDate(parseThaiDate(item.openDate)) : '-'}</td>
                                 <td class="border border-gray-300 p-2 text-center">
                                     <span
                                         class="px-2 py-1 rounded text-sm ${level1OK ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
-                                        ${item.sugarLevel1}
+                                        ${item.sugarLevel1 || '-'}
                                     </span>
                                 </td>
                                 <td class="border border-gray-300 p-2 text-center">
                                     <span
                                         class="px-2 py-1 rounded text-sm ${level2OK ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
-                                        ${item.sugarLevel2}
+                                        ${item.sugarLevel2 || '-'}
                                     </span>
                                 </td>
                                 <td class="border border-gray-300 p-2 text-center">
