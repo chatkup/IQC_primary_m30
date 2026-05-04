@@ -89,7 +89,7 @@
             </div>
         </div>
     </div>
-    
+
     <script>
         // Simple Icons as SVG strings
         const RefreshIcon = `<svg class="icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>`;
@@ -114,685 +114,834 @@
         let error = null;
         let charts = {};
         let showGlucoseTable = false;
+        let lactateCharts = {};
+        let showLactateTable = false;
+        let lactateMeanSD = {
+            level1: { mean: 2.5, sd: 0.3 },
+            level2: { mean: 8.0, sd: 0.8 }
+        };
 
         // Proxy Server URL
         const API_BASE_URL = 'https://iqc-proxy-server.onrender.com';
 
-// สำหรับ development (comment ไว้)
-// const API_BASE_URL = 'http://localhost:10000';
-
-
-    // ฟังก์ชันสำหรับโหลด Config
-    async function loadConfig() {
-    try {
-    console.log('Loading config from proxy server...');
-    const response = await fetch(`${API_BASE_URL}/api/config`, {
-    method: 'GET',
-    mode: 'cors'
-    });
-
-    if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const result = await response.json();
-    console.log('Config loaded:', result);
-
-    if (result.success && result.config) {
-    customMeanSD = result.config;
-    console.log('Config updated from server:', customMeanSD);
-    } else {
-    console.log('Using default config');
-    }
-
-    return result.success;
-    } catch (error) {
-    console.error('Error loading config:', error);
-    return false;
-    }
-    }
-
-
-    // Empty data structure
-    const mockData = {
-    stations: [],
-    glucoseData: [],
-    pregnancyData: [],
-    urineData: []
-    };
-
-    // ฟังก์ชันสำหรับคำนวดปีงบประมาณ
-    function getBuddhistFiscalYear(date) {
-    if (!date || isNaN(date.getTime())) return null;
-
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-
-    if (month >= 10) {
-    return year + 544;
-    } else {
-    return year + 543;
-    }
-    }
-
-    // ฟังก์ชันสำหรับหาปีงบประมาณปัจจุบัน
-    function getCurrentFiscalYear() {
-    const today = new Date();
-    return getBuddhistFiscalYear(today);
-    }
-
-    // ฟังก์ชันสำหรับสร้างรายการปีงบประมาณ
-    function getFiscalYearOptions() {
-    if (!processedData || !processedData.glucoseData.length) return [];
-
-    const fiscalYears = new Set();
-    processedData.glucoseData.forEach(item => {
-    const date = parseThaiDate(item.testDate);
-    const fiscalYear = getBuddhistFiscalYear(date);
-    if (fiscalYear) {
-    fiscalYears.add(fiscalYear);
-    }
-    });
-
-    return Array.from(fiscalYears).sort((a, b) => b - a);
-    }
-
-    // ฟังก์ชันสำหรับกรองข้อมูลตามปีงบประมาณ
-    function filterDataByFiscalYear(data, fiscalYear) {
-    if (fiscalYear === 'all') return data;
-
-    return data.filter(item => {
-    const date = parseThaiDate(item.testDate);
-    const itemFiscalYear = getBuddhistFiscalYear(date);
-    return itemFiscalYear === parseInt(fiscalYear);
-    });
-    }
-
-    // Fetch Data Function
-    async function fetchData(showLoading = true) {
-    if (showLoading) setLoading(true);
-    setError(null);
-
-    try {
-    console.log('กำลังดึงข้อมูลจาก proxy server:', `${API_BASE_URL}/api/iqc`);
-
-    const response = await fetch(`${API_BASE_URL}/api/iqc?action=api`, {
-    method: 'GET',
-    mode: 'cors'
-    });
-
-    if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const result = await response.json();
-    console.log('API Response:', result);
-
-    if (result.success) {
-    console.log('API data received successfully');
-    setProcessedData(result.data);
-    setLastUpdate(new Date(result.lastUpdate));
-
-    if (result.data.stations.length > 0 && !selectedStation) {
-    setSelectedStation(result.data.stations[0]);
-    }
-    } else {
-    throw new Error(result.error || 'ไม่สามารถดึงข้อมูลได้');
-    }
-
-    } catch (err) {
-    console.error('Error fetching data:', err);
-    console.log('No data available - API connection failed');
-    setError('ไม่สามารถเชื่อมต่อ API ได้ กรุณาตรวจสอบการเชื่อมต่อ');
-
-    setProcessedData(mockData);
-    setLastUpdate(new Date());
-    } finally {
-    setLoading(false);
-    }
-    }
-
-    // Helper Functions
-    function setLoading(value) {
-    loading = value;
-    render();
-    }
-
-    function setError(value) {
-    error = value;
-    render();
-    }
-
-    function setProcessedData(data) {
-    processedData = data;
-    if (data && data.stations && data.stations.length > 0) {
-    if (!selectedStation || (!data.stations.includes(selectedStation) && selectedStation !== 'all')) {
-    selectedStation = data.stations[0];
-    console.log('Auto-selected station:', selectedStation);
-    }
-    }
-    
-    // ตั้งค่าปีงบประมาณปัจจุบันเป็น default ถ้ายังไม่มีการเลือก
-    if (selectedFiscalYear === 'all' && data && data.glucoseData && data.glucoseData.length > 0) {
-    const currentFY = getCurrentFiscalYear();
-    const fiscalYears = getFiscalYearOptions();
-    if (fiscalYears.includes(currentFY)) {
-    selectedFiscalYear = currentFY.toString();
-    console.log('Auto-selected current fiscal year:', selectedFiscalYear);
-    }
-    }
-    
-    render();
-    }
-
-    function setLastUpdate(date) {
-    lastUpdate = date;
-    render();
-    }
-
-    function setSelectedStation(station) {
-    selectedStation = station;
-    console.log('Selected station changed to:', station);
-    updateCharts();
-    render();
-    }
-
-    function setSelectedFiscalYear(year) {
-    selectedFiscalYear = year;
-    console.log('Selected fiscal year changed to:', year);
-    updateCharts();
-    render();
-    }
-
-    function setSelectedMeanSDMode(mode) {
-    selectedMeanSDMode = mode;
-    console.log('Selected Mean/SD mode changed to:', mode);
-    updateCharts();
-    render();
-    }
-
-    function setAutoRefresh(value) {
-    autoRefresh = value;
-    render();
-    }
-
-    function toggleGlucoseTable() {
-    showGlucoseTable = !showGlucoseTable;
-    render();
-    }
-
-    // Helper function to parse Thai date format
-    function parseThaiDate(dateStr) {
-    if (!dateStr) return new Date(0);
-
-    if (typeof dateStr === 'number') {
-    const excelEpoch = new Date(1900, 0, 1);
-    const date = new Date(excelEpoch.getTime() + (dateStr - 1) * 86400 * 1000);
-
-    const bangkokOffset = 7 * 60;
-    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-    return new Date(utc + (bangkokOffset * 60000));
-    }
-
-    if (typeof dateStr === 'string') {
-    const parts = dateStr.split('/');
-    if (parts.length === 3) {
-    const day = parseInt(parts[0]);
-    const month = parseInt(parts[1]) - 1;
-    const year = parseInt(parts[2]);
-
-    const christianYear = year > 2500 ? year - 543 : year;
-
-    const date = new Date(christianYear, month, day);
-    return date;
-    }
-
-    if (dateStr.includes('T') || dateStr.includes('Z')) {
-    const date = new Date(dateStr);
-    const bangkokOffset = 7 * 60;
-    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-    return new Date(utc + (bangkokOffset * 60000));
-    }
-    }
-
-    const date = new Date(dateStr);
-    const bangkokOffset = 7 * 60;
-    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-    return new Date(utc + (bangkokOffset * 60000));
-    }
-
-    // Helper function to format date in Thai format
-    function formatThaiDate(date) {
-    if (!date || isNaN(date.getTime())) return '-';
-
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = (date.getFullYear() + 543);
-
-    return `${day}/${month}/${year}`;
-    }
-
-    // Helper function to format datetime in Thai format
-    function formatThaiDateTime(date) {
-    if (!date || isNaN(date.getTime())) return '-';
-
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = (date.getFullYear() + 543);
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-
-    return `${day}/${month}/${year} ${hours}:${minutes}`;
-    }
-
-    // Chart Functions
-    function getChartData(level) {
-    if (!processedData) {
-    console.log('No data available');
-    return [];
-    }
-
-    console.log('Getting chart data for station:', selectedStation, 'level:', level);
-
-    // กรองข้อมูลตามปีงบประมาณ
-    const filteredByYear = filterDataByFiscalYear(processedData.glucoseData, selectedFiscalYear);
-
-    // กรองข้อมูลตามหน่วยงาน
-    const stationData = filterDataByStation(filteredByYear);
-
-    const sortedData = stationData.sort((a, b) => {
-    // Sort by test date
-    const dateA = parseThaiDate(a.testDate);
-    const dateB = parseThaiDate(b.testDate);
-    return dateA - dateB;
-    });
-
-    console.log('Filtered and sorted station data:', sortedData.length, 'items');
-
-    const chartData = sortedData.map((item, index) => {
-    const testDate = parseThaiDate(item.testDate);
-    return {
-    index: index + 1,
-    date: formatThaiDate(testDate),
-    value: item[level],
-    lot: item.lot,
-    brand: item.brand,
-    tester: item.tester,
-    station: item.station,
-    sortDate: testDate
-    };
-    });
-
-    console.log('Final chart data for', level, ':', chartData);
-    return chartData;
-    }
-
-    // ฟังก์ชันสำหรับข้อมูลทุกสถานี
-    function getAllStationsChartData(level) {
-    if (!processedData) return [];
-
-    const filteredByYear = filterDataByFiscalYear(processedData.glucoseData, selectedFiscalYear);
-
-    const allStationData = filteredByYear
-    .sort((a, b) => {
-    const dateA = parseThaiDate(a.testDate);
-    const dateB = parseThaiDate(b.testDate);
-    return dateA - dateB;
-    });
-
-    const chartData = allStationData.map((item, index) => {
-    const testDate = parseThaiDate(item.testDate);
-    return {
-    value: item[level],
-    station: item.station,
-    date: formatThaiDate(testDate),
-    lot: item.lot,
-    brand: item.brand,
-    tester: item.tester
-    };
-    });
-
-    return chartData;
-    }
-
-    // ฟังก์ชันสำหรับกรองข้อมูลตามหน่วยงานที่เลือก
-    function filterDataByStation(data) {
-    if (!data || data.length === 0) return [];
-    
-    if (selectedStation === 'all') {
-    return data;
-    } else if (selectedStation === 'group_hospital') {
-    // กลุ่ม รพ.ม่วงสามสิบ - ชื่อลงท้ายด้วย "รพ.ม่วงสามสิบ"
-    return data.filter(item => item.station && item.station.includes('รพ.ม่วงสามสิบ'));
-    } else if (selectedStation === 'group_other') {
-    // กลุ่มที่ไม่ใช่ รพ.ม่วงสามสิบ
-    return data.filter(item => item.station && !item.station.includes('รพ.ม่วงสามสิบ'));
-    } else {
-    // หน่วยงานเฉพาะ
-    return data.filter(item => item.station === selectedStation);
-    }
-    }
-
-    function getStatistics(level) {
-    let values = [];
-
-    switch (selectedMeanSDMode) {
-    case 'station':
-    // โหมด 2: ใช้เฉพาะสถานีที่เลือก
-    const stationData = getChartData(level);
-    if (stationData.length === 0) return null;
-    values = stationData.map(d => d.value).filter(v => v !== null && !isNaN(v));
-    break;
-
-    case 'all':
-    // โหมด 3: ใช้ข้อมูลทุกสถานี
-    const allData = getAllStationsChartData(level);
-    if (allData.length === 0) return null;
-    values = allData.map(d => d.value).filter(v => v !== null && !isNaN(v));
-    break;
-
-    case 'custom':
-    // โหมด 1: ใช้ค่าจาก Google Sheets (กำหนดเอง)
-    const customData = customMeanSD[level];
-    if (!customData) return null;
-    return {
-    mean: customData.mean.toFixed(1),
-    sd: customData.sd.toFixed(1),
-    cv: ((customData.sd / customData.mean) * 100).toFixed(1),
-    plus2sd: (customData.mean + 2 * customData.sd).toFixed(1),
-    minus2sd: (customData.mean - 2 * customData.sd).toFixed(1),
-    plus3sd: (customData.mean + 3 * customData.sd).toFixed(1),
-    minus3sd: (customData.mean - 3 * customData.sd).toFixed(1)
-    };
-    }
-
-    if (values.length === 0) return null;
-
-    const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
-    const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
-    const sd = Math.sqrt(variance);
-
-    return {
-    mean: mean.toFixed(1),
-    sd: sd.toFixed(1),
-    cv: ((sd / mean) * 100).toFixed(1),
-    plus2sd: (mean + 2 * sd).toFixed(1),
-    minus2sd: (mean - 2 * sd).toFixed(1),
-    plus3sd: (mean + 3 * sd).toFixed(1),
-    minus3sd: (mean - 3 * sd).toFixed(1)
-    };
-    }
-
-    // ฟังก์ชันสำหรับกำหนดสีของจุดข้อมูล
-    function getPointColors(chartData, statistics) {
-    if (!statistics) return chartData.map(() => '#1f2937');
-
-    const mean = parseFloat(statistics.mean);
-    const plus2sd = parseFloat(statistics.plus2sd);
-    const minus2sd = parseFloat(statistics.minus2sd);
-    const plus3sd = parseFloat(statistics.plus3sd);
-    const minus3sd = parseFloat(statistics.minus3sd);
-
-    return chartData.map(point => {
-    const value = point.value;
-    
-    // ตรวจสอบช่วงค่าและกำหนดสี
-    if (value > plus3sd || value < minus3sd) {
-        return '#dc2626'; // สีแดงสำหรับ ±3SD
-    } else if (value > plus2sd || value < minus2sd) {
-        return '#f97316'; // สีส้มสำหรับ ±2SD
-    } else {
-        return '#1f2937'; // สีดำปกติ
-    }
-    });
-    }
-
-    // ฟังก์ชันสำหรับกำหนดสีและสถานะของแต่ละแถวในตาราง
-    function getRowColorAndStatus(value, statistics) {
-    if (!statistics || value === null || value === undefined) {
-    return { color: '', bgColor: '', status: '-' };
-    }
-
-    const mean = parseFloat(statistics.mean);
-    const plus2sd = parseFloat(statistics.plus2sd);
-    const minus2sd = parseFloat(statistics.minus2sd);
-    const plus3sd = parseFloat(statistics.plus3sd);
-    const minus3sd = parseFloat(statistics.minus3sd);
-
-    if (value > plus3sd || value < minus3sd) {
-    return { 
-        color: 'text-red-800', 
-        bgColor: 'bg-red-100', 
-        status: '⚠️ นอกช่วง ±3SD' 
-    };
-    } else if (value > plus2sd || value < minus2sd) {
-    return { 
-        color: 'text-orange-800', 
-        bgColor: 'bg-orange-100', 
-        status: '⚠️ นอกช่วง ±2SD' 
-    };
-    } else {
-    return { 
-        color: 'text-gray-800', 
-        bgColor: 'bg-white', 
-        status: '✓ ปกติ' 
-    };
-    }
-    }
-
-    function updateCharts() {
-    const levels = ['level1', 'level2', 'level3'];
-    const levelNames = {
-    'level1': 'Level 1 (Low)',
-    'level2': 'Level 2 (Normal)',
-    'level3': 'Level 3 (High)'
-    };
-
-    levels.forEach(level => {
-    const chartData = getChartData(level);
-    const statistics = getStatistics(level);
-
-    console.log('Updating chart for level:', level, 'with data:', chartData.length, 'points');
-
-    if (!chartData.length) {
-    console.log('No chart data available for level:', level);
-    return;
-    }
-
-    const ctx = document.getElementById(`leveyChart_${level}`);
-    if (!ctx) {
-    console.log('Chart canvas not found for level:', level);
-    return;
-    }
-
-    // Destroy existing chart
-    if (charts[level]) {
-    charts[level].destroy();
-    charts[level] = null;
-    }
-
-    try {
-    // กำหนดสีของจุดข้อมูลตามช่วงค่า
-    const pointColors = getPointColors(chartData, statistics);
-    
-    // Create new chart
-    charts[level] = new Chart(ctx, {
-    type: 'line',
-    data: {
-    labels: chartData.map(d => d.index),
-    datasets: [{
-    label: 'ค่าผลตรวจ',
-    data: chartData.map(d => d.value),
-    borderColor: '#1f2937',
-    backgroundColor: pointColors, // ใช้สีที่แตกต่างกันสำหรับแต่ละจุด
-    pointBackgroundColor: pointColors, // ใช้สีที่แตกต่างกันสำหรับแต่ละจุด
-    pointBorderColor: pointColors, // ใช้สีที่แตกต่างกันสำหรับแต่ละจุด
-    pointRadius: 4,
-    pointHoverRadius: 6,
-    borderWidth: 2,
-    showLine: true // แสดงเส้นเชื่อมจุด
-    }].concat(statistics ? [
-    {
-    label: 'Mean',
-    data: new Array(chartData.length).fill(parseFloat(statistics.mean)),
-    borderColor: '#2563eb',
-    borderDash: [5, 5],
-    pointRadius: 0,
-    borderWidth: 2
-    },
-    {
-    label: '+2SD',
-    data: new Array(chartData.length).fill(parseFloat(statistics.plus2sd)),
-    borderColor: '#16a34a',
-    borderDash: [3, 3],
-    pointRadius: 0,
-    borderWidth: 2
-    },
-    {
-    label: '-2SD',
-    data: new Array(chartData.length).fill(parseFloat(statistics.minus2sd)),
-    borderColor: '#16a34a',
-    borderDash: [3, 3],
-    pointRadius: 0,
-    borderWidth: 2
-    },
-    {
-    label: '+3SD',
-    data: new Array(chartData.length).fill(parseFloat(statistics.plus3sd)),
-    borderColor: '#dc2626',
-    borderDash: [2, 2],
-    pointRadius: 0,
-    borderWidth: 2
-    },
-    {
-    label: '-3SD',
-    data: new Array(chartData.length).fill(parseFloat(statistics.minus3sd)),
-    borderColor: '#dc2626',
-    borderDash: [2, 2],
-    pointRadius: 0,
-    borderWidth: 2
-    }
-    ] : [])
-    },
-    options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-    title: {
-    display: true,
-    text: levelNames[level],
-    font: {
-    size: 16,
-    weight: 'bold'
-    }
-    },
-    tooltip: {
-    callbacks: {
-    afterLabel: function(context) {
-    if (context.datasetIndex === 0) {
-    const dataPoint = chartData[context.dataIndex];
-    const value = dataPoint.value;
-    
-    // แสดงสถานะของจุดข้อมูล
-    let status = 'ปกติ (อยู่ในช่วง ±2SD)';
-    if (statistics) {
-    const plus3sd = parseFloat(statistics.plus3sd);
-    const minus3sd = parseFloat(statistics.minus3sd);
-    const plus2sd = parseFloat(statistics.plus2sd);
-    const minus2sd = parseFloat(statistics.minus2sd);
-    
-    if (value > plus3sd || value < minus3sd) {
-        status = '⚠️ อยู่นอกช่วง ±3SD (สีแดง)';
-    } else if (value > plus2sd || value < minus2sd) {
-        status = '⚠️ อยู่นอกช่วง ±2SD (สีส้ม)';
-    }
-    }
-    
-    const labels = [
-    `วันที่: ${dataPoint.date}`,
-    `Lot: ${dataPoint.lot}`,
-    `ยี่ห้อ: ${dataPoint.brand}`,
-    `ผู้ทดสอบ: ${dataPoint.tester}`,
-    `สถานะ: ${status}`
-    ];
-
-    // แสดงชื่อสถานีถ้าเลือก "ทุกหน่วยงาน"
-    if (selectedStation === 'all' && dataPoint.station) {
-    labels.unshift(`หน่วยงาน: ${dataPoint.station}`);
-    }
-
-    return labels;
-    }
-    return '';
-    }
-    }
-    },
-    legend: {
-    display: true,
-    labels: {
-    filter: function(legendItem, chartData) {
-    // เพิ่ม legend สำหรับสีของจุด
-    return true;
-    }
-    }
-    }
-    },
-    scales: {
-    x: {
-    title: {
-    display: true,
-    text: 'ลำดับการทดสอบ'
-    }
-    },
-    y: {
-    title: {
-    display: true,
-    text: 'ค่าผลตรวจ (mg/dL)'
-    }
-    }
-    }
-    }
-    });
-
-    console.log('Chart created successfully for level:', level);
-
-    } catch (error) {
-    console.error('Error creating chart for level:', level, error);
-    }
-    });
-    }
-
-    // Export Functions
-    function exportData() {
-    const levels = ['level1', 'level2', 'level3'];
-    let csvContent = '';
-
-    levels.forEach(level => {
-    const chartData = getChartData(level);
-    if (chartData.length > 0) {
-    csvContent += `\n${level.toUpperCase()}\n`;
-    csvContent += 'ลำดับ,วันที่,ค่าผลตรวจ,Lot,ยี่ห้อ,ผู้ทดสอบ\n';
-    chartData.forEach(row => {
-    csvContent += `${row.index},${row.date},${row.value},${row.lot},${row.brand},${row.tester}\n`;
-    });
-    }
-    });
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    const fiscalYearSuffix = selectedFiscalYear === 'all' ? 'all' : selectedFiscalYear;
-    link.download = `IQC_${selectedStation}_FY${fiscalYearSuffix}_${selectedMeanSDMode}_${new
-    Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    }
-
-    // Render Function
-    function render() {
-    const root = document.getElementById('root');
-
-    if (loading && !processedData) {
-    root.innerHTML = `
+        // สำหรับ development (comment ไว้)
+        // const API_BASE_URL = 'http://localhost:10000';
+
+
+        // ฟังก์ชันสำหรับโหลด Config
+        async function loadConfig() {
+            try {
+                console.log('Loading config from proxy server...');
+                const response = await fetch(`${API_BASE_URL}/api/config`, {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log('Config loaded:', result);
+
+                if (result.success && result.config) {
+                    const cfg = result.config;
+                    // รูปแบบใหม่: { glucose: {...}, lactate: {...} }
+                    if (cfg.glucose) {
+                        customMeanSD = cfg.glucose;
+                        if (cfg.lactate) lactateMeanSD = cfg.lactate;
+                    } else {
+                        // รูปแบบเดิม: { level1, level2, level3 } (glucose เท่านั้น)
+                        customMeanSD = cfg;
+                    }
+                    console.log('Config updated - glucose:', customMeanSD, 'lactate:', lactateMeanSD);
+                } else {
+                    console.log('Using default config');
+                }
+
+                return result.success;
+            } catch (error) {
+                console.error('Error loading config:', error);
+                return false;
+            }
+        }
+
+
+        // Empty data structure
+        const mockData = {
+            stations: [],
+            glucoseData: [],
+            pregnancyData: [],
+            urineData: [],
+            lactateData: []
+        };
+
+        // ฟังก์ชันสำหรับคำนวดปีงบประมาณ
+        function getBuddhistFiscalYear(date) {
+            if (!date || isNaN(date.getTime())) return null;
+
+            const year = date.getFullYear();
+            const month = date.getMonth() + 1;
+
+            if (month >= 10) {
+                return year + 544;
+            } else {
+                return year + 543;
+            }
+        }
+
+        // ฟังก์ชันสำหรับหาปีงบประมาณปัจจุบัน
+        function getCurrentFiscalYear() {
+            const today = new Date();
+            return getBuddhistFiscalYear(today);
+        }
+
+        // ฟังก์ชันสำหรับสร้างรายการปีงบประมาณ
+        function getFiscalYearOptions() {
+            if (!processedData || !processedData.glucoseData.length) return [];
+
+            const fiscalYears = new Set();
+            processedData.glucoseData.forEach(item => {
+                const date = parseThaiDate(item.testDate);
+                const fiscalYear = getBuddhistFiscalYear(date);
+                if (fiscalYear) {
+                    fiscalYears.add(fiscalYear);
+                }
+            });
+
+            return Array.from(fiscalYears).sort((a, b) => b - a);
+        }
+
+        // ฟังก์ชันสำหรับกรองข้อมูลตามปีงบประมาณ
+        function filterDataByFiscalYear(data, fiscalYear) {
+            if (fiscalYear === 'all') return data;
+
+            return data.filter(item => {
+                const date = parseThaiDate(item.testDate);
+                const itemFiscalYear = getBuddhistFiscalYear(date);
+                return itemFiscalYear === parseInt(fiscalYear);
+            });
+        }
+
+        // Fetch Data Function
+        async function fetchData(showLoading = true) {
+            if (showLoading) setLoading(true);
+            setError(null);
+
+            try {
+                console.log('กำลังดึงข้อมูลจาก proxy server:', `${API_BASE_URL}/api/iqc`);
+
+                const response = await fetch(`${API_BASE_URL}/api/iqc?action=api`, {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log('API Response:', result);
+
+                if (result.success) {
+                    console.log('API data received successfully');
+                    setProcessedData(result.data);
+                    setLastUpdate(new Date(result.lastUpdate));
+
+                    if (result.data.stations.length > 0 && !selectedStation) {
+                        setSelectedStation(result.data.stations[0]);
+                    }
+                } else {
+                    throw new Error(result.error || 'ไม่สามารถดึงข้อมูลได้');
+                }
+
+            } catch (err) {
+                console.error('Error fetching data:', err);
+                console.log('No data available - API connection failed');
+                setError('ไม่สามารถเชื่อมต่อ API ได้ กรุณาตรวจสอบการเชื่อมต่อ');
+
+                setProcessedData(mockData);
+                setLastUpdate(new Date());
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // Helper Functions
+        function setLoading(value) {
+            loading = value;
+            render();
+        }
+
+        function setError(value) {
+            error = value;
+            render();
+        }
+
+        function setProcessedData(data) {
+            processedData = data;
+            if (data && data.stations && data.stations.length > 0) {
+                if (!selectedStation || (!data.stations.includes(selectedStation) && selectedStation !== 'all')) {
+                    selectedStation = data.stations[0];
+                    console.log('Auto-selected station:', selectedStation);
+                }
+            }
+
+            // ตั้งค่าปีงบประมาณปัจจุบันเป็น default ถ้ายังไม่มีการเลือก
+            if (selectedFiscalYear === 'all' && data && data.glucoseData && data.glucoseData.length > 0) {
+                const currentFY = getCurrentFiscalYear();
+                const fiscalYears = getFiscalYearOptions();
+                if (fiscalYears.includes(currentFY)) {
+                    selectedFiscalYear = currentFY.toString();
+                    console.log('Auto-selected current fiscal year:', selectedFiscalYear);
+                }
+            }
+
+            render();
+        }
+
+        function setLastUpdate(date) {
+            lastUpdate = date;
+            render();
+        }
+
+        function setSelectedStation(station) {
+            selectedStation = station;
+            console.log('Selected station changed to:', station);
+            updateCharts();
+            render();
+        }
+
+        function setSelectedFiscalYear(year) {
+            selectedFiscalYear = year;
+            console.log('Selected fiscal year changed to:', year);
+            updateCharts();
+            render();
+        }
+
+        function setSelectedMeanSDMode(mode) {
+            selectedMeanSDMode = mode;
+            console.log('Selected Mean/SD mode changed to:', mode);
+            updateCharts();
+            render();
+        }
+
+        function setAutoRefresh(value) {
+            autoRefresh = value;
+            render();
+        }
+
+        function toggleGlucoseTable() {
+            showGlucoseTable = !showGlucoseTable;
+            render();
+        }
+
+        // Helper function to parse Thai date format
+        function parseThaiDate(dateStr) {
+            if (!dateStr) return new Date(0);
+
+            if (typeof dateStr === 'number') {
+                const excelEpoch = new Date(1900, 0, 1);
+                const date = new Date(excelEpoch.getTime() + (dateStr - 1) * 86400 * 1000);
+
+                const bangkokOffset = 7 * 60;
+                const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+                return new Date(utc + (bangkokOffset * 60000));
+            }
+
+            if (typeof dateStr === 'string') {
+                const parts = dateStr.split('/');
+                if (parts.length === 3) {
+                    const day = parseInt(parts[0]);
+                    const month = parseInt(parts[1]) - 1;
+                    const year = parseInt(parts[2]);
+
+                    const christianYear = year > 2500 ? year - 543 : year;
+
+                    const date = new Date(christianYear, month, day);
+                    return date;
+                }
+
+                if (dateStr.includes('T') || dateStr.includes('Z')) {
+                    const date = new Date(dateStr);
+                    const bangkokOffset = 7 * 60;
+                    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+                    return new Date(utc + (bangkokOffset * 60000));
+                }
+            }
+
+            const date = new Date(dateStr);
+            const bangkokOffset = 7 * 60;
+            const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+            return new Date(utc + (bangkokOffset * 60000));
+        }
+
+        // Helper function to format date in Thai format
+        function formatThaiDate(date) {
+            if (!date || isNaN(date.getTime())) return '-';
+
+            const day = date.getDate().toString().padStart(2, '0');
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const year = (date.getFullYear() + 543);
+
+            return `${day}/${month}/${year}`;
+        }
+
+        // Helper function to format datetime in Thai format
+        function formatThaiDateTime(date) {
+            if (!date || isNaN(date.getTime())) return '-';
+
+            const day = date.getDate().toString().padStart(2, '0');
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const year = (date.getFullYear() + 543);
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+
+            return `${day}/${month}/${year} ${hours}:${minutes}`;
+        }
+
+        // Chart Functions
+        function getChartData(level) {
+            if (!processedData) {
+                console.log('No data available');
+                return [];
+            }
+
+            console.log('Getting chart data for station:', selectedStation, 'level:', level);
+
+            // กรองข้อมูลตามปีงบประมาณ
+            const filteredByYear = filterDataByFiscalYear(processedData.glucoseData, selectedFiscalYear);
+
+            // กรองข้อมูลตามหน่วยงาน
+            const stationData = filterDataByStation(filteredByYear);
+
+            const sortedData = stationData.sort((a, b) => {
+                // Sort by test date
+                const dateA = parseThaiDate(a.testDate);
+                const dateB = parseThaiDate(b.testDate);
+                return dateA - dateB;
+            });
+
+            console.log('Filtered and sorted station data:', sortedData.length, 'items');
+
+            const chartData = sortedData.map((item, index) => {
+                const testDate = parseThaiDate(item.testDate);
+                return {
+                    index: index + 1,
+                    date: formatThaiDate(testDate),
+                    value: item[level],
+                    lot: item.lot,
+                    brand: item.brand,
+                    tester: item.tester,
+                    station: item.station,
+                    sortDate: testDate
+                };
+            });
+
+            console.log('Final chart data for', level, ':', chartData);
+            return chartData;
+        }
+
+        // ฟังก์ชันสำหรับข้อมูลทุกสถานี
+        function getAllStationsChartData(level) {
+            if (!processedData) return [];
+
+            const filteredByYear = filterDataByFiscalYear(processedData.glucoseData, selectedFiscalYear);
+
+            const allStationData = filteredByYear
+                .sort((a, b) => {
+                    const dateA = parseThaiDate(a.testDate);
+                    const dateB = parseThaiDate(b.testDate);
+                    return dateA - dateB;
+                });
+
+            const chartData = allStationData.map((item, index) => {
+                const testDate = parseThaiDate(item.testDate);
+                return {
+                    value: item[level],
+                    station: item.station,
+                    date: formatThaiDate(testDate),
+                    lot: item.lot,
+                    brand: item.brand,
+                    tester: item.tester
+                };
+            });
+
+            return chartData;
+        }
+
+        // ฟังก์ชันสำหรับกรองข้อมูลตามหน่วยงานที่เลือก
+        function filterDataByStation(data) {
+            if (!data || data.length === 0) return [];
+
+            if (selectedStation === 'all') {
+                return data;
+            } else if (selectedStation === 'group_hospital') {
+                // กลุ่ม รพ.ม่วงสามสิบ - ชื่อลงท้ายด้วย "รพ.ม่วงสามสิบ"
+                return data.filter(item => item.station && item.station.includes('รพ.ม่วงสามสิบ'));
+            } else if (selectedStation === 'group_other') {
+                // กลุ่มที่ไม่ใช่ รพ.ม่วงสามสิบ
+                return data.filter(item => item.station && !item.station.includes('รพ.ม่วงสามสิบ'));
+            } else {
+                // หน่วยงานเฉพาะ
+                return data.filter(item => item.station === selectedStation);
+            }
+        }
+
+        function getStatistics(level) {
+            let values = [];
+
+            switch (selectedMeanSDMode) {
+                case 'station':
+                    // โหมด 2: ใช้เฉพาะสถานีที่เลือก
+                    const stationData = getChartData(level);
+                    if (stationData.length === 0) return null;
+                    values = stationData.map(d => d.value).filter(v => v !== null && !isNaN(v));
+                    break;
+
+                case 'all':
+                    // โหมด 3: ใช้ข้อมูลทุกสถานี
+                    const allData = getAllStationsChartData(level);
+                    if (allData.length === 0) return null;
+                    values = allData.map(d => d.value).filter(v => v !== null && !isNaN(v));
+                    break;
+
+                case 'custom':
+                    // โหมด 1: ใช้ค่าจาก Google Sheets (กำหนดเอง)
+                    const customData = customMeanSD[level];
+                    if (!customData) return null;
+                    return {
+                        mean: customData.mean.toFixed(1),
+                        sd: customData.sd.toFixed(1),
+                        cv: ((customData.sd / customData.mean) * 100).toFixed(1),
+                        plus2sd: (customData.mean + 2 * customData.sd).toFixed(1),
+                        minus2sd: (customData.mean - 2 * customData.sd).toFixed(1),
+                        plus3sd: (customData.mean + 3 * customData.sd).toFixed(1),
+                        minus3sd: (customData.mean - 3 * customData.sd).toFixed(1)
+                    };
+            }
+
+            if (values.length === 0) return null;
+
+            const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
+            const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+            const sd = Math.sqrt(variance);
+
+            return {
+                mean: mean.toFixed(1),
+                sd: sd.toFixed(1),
+                cv: ((sd / mean) * 100).toFixed(1),
+                plus2sd: (mean + 2 * sd).toFixed(1),
+                minus2sd: (mean - 2 * sd).toFixed(1),
+                plus3sd: (mean + 3 * sd).toFixed(1),
+                minus3sd: (mean - 3 * sd).toFixed(1)
+            };
+        }
+
+        // ฟังก์ชันสำหรับกำหนดสีของจุดข้อมูล
+        function getPointColors(chartData, statistics) {
+            if (!statistics) return chartData.map(() => '#1f2937');
+
+            const mean = parseFloat(statistics.mean);
+            const plus2sd = parseFloat(statistics.plus2sd);
+            const minus2sd = parseFloat(statistics.minus2sd);
+            const plus3sd = parseFloat(statistics.plus3sd);
+            const minus3sd = parseFloat(statistics.minus3sd);
+
+            return chartData.map(point => {
+                const value = point.value;
+
+                // ตรวจสอบช่วงค่าและกำหนดสี
+                if (value > plus3sd || value < minus3sd) {
+                    return '#dc2626'; // สีแดงสำหรับ ±3SD
+                } else if (value > plus2sd || value < minus2sd) {
+                    return '#f97316'; // สีส้มสำหรับ ±2SD
+                } else {
+                    return '#1f2937'; // สีดำปกติ
+                }
+            });
+        }
+
+        // ฟังก์ชันสำหรับกำหนดสีและสถานะของแต่ละแถวในตาราง
+        function getRowColorAndStatus(value, statistics) {
+            if (!statistics || value === null || value === undefined) {
+                return { color: '', bgColor: '', status: '-' };
+            }
+
+            const mean = parseFloat(statistics.mean);
+            const plus2sd = parseFloat(statistics.plus2sd);
+            const minus2sd = parseFloat(statistics.minus2sd);
+            const plus3sd = parseFloat(statistics.plus3sd);
+            const minus3sd = parseFloat(statistics.minus3sd);
+
+            if (value > plus3sd || value < minus3sd) {
+                return {
+                    color: 'text-red-800',
+                    bgColor: 'bg-red-100',
+                    status: '⚠️ นอกช่วง ±3SD'
+                };
+            } else if (value > plus2sd || value < minus2sd) {
+                return {
+                    color: 'text-orange-800',
+                    bgColor: 'bg-orange-100',
+                    status: '⚠️ นอกช่วง ±2SD'
+                };
+            } else {
+                return {
+                    color: 'text-gray-800',
+                    bgColor: 'bg-white',
+                    status: '✓ ปกติ'
+                };
+            }
+        }
+
+        function updateCharts() {
+            const levels = ['level1', 'level2', 'level3'];
+            const levelNames = {
+                'level1': 'Level 1 (Low)',
+                'level2': 'Level 2 (Normal)',
+                'level3': 'Level 3 (High)'
+            };
+
+            levels.forEach(level => {
+                const chartData = getChartData(level);
+                const statistics = getStatistics(level);
+
+                console.log('Updating chart for level:', level, 'with data:', chartData.length, 'points');
+
+                if (!chartData.length) {
+                    console.log('No chart data available for level:', level);
+                    return;
+                }
+
+                const ctx = document.getElementById(`leveyChart_${level}`);
+                if (!ctx) {
+                    console.log('Chart canvas not found for level:', level);
+                    return;
+                }
+
+                // Destroy existing chart
+                if (charts[level]) {
+                    charts[level].destroy();
+                    charts[level] = null;
+                }
+
+                try {
+                    // กำหนดสีของจุดข้อมูลตามช่วงค่า
+                    const pointColors = getPointColors(chartData, statistics);
+
+                    // Create new chart
+                    charts[level] = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: chartData.map(d => d.index),
+                            datasets: [{
+                                label: 'ค่าผลตรวจ',
+                                data: chartData.map(d => d.value),
+                                borderColor: '#1f2937',
+                                backgroundColor: pointColors, // ใช้สีที่แตกต่างกันสำหรับแต่ละจุด
+                                pointBackgroundColor: pointColors, // ใช้สีที่แตกต่างกันสำหรับแต่ละจุด
+                                pointBorderColor: pointColors, // ใช้สีที่แตกต่างกันสำหรับแต่ละจุด
+                                pointRadius: 4,
+                                pointHoverRadius: 6,
+                                borderWidth: 2,
+                                showLine: true // แสดงเส้นเชื่อมจุด
+                            }].concat(statistics ? [
+                                {
+                                    label: 'Mean',
+                                    data: new Array(chartData.length).fill(parseFloat(statistics.mean)),
+                                    borderColor: '#2563eb',
+                                    borderDash: [5, 5],
+                                    pointRadius: 0,
+                                    borderWidth: 2
+                                },
+                                {
+                                    label: '+2SD',
+                                    data: new Array(chartData.length).fill(parseFloat(statistics.plus2sd)),
+                                    borderColor: '#16a34a',
+                                    borderDash: [3, 3],
+                                    pointRadius: 0,
+                                    borderWidth: 2
+                                },
+                                {
+                                    label: '-2SD',
+                                    data: new Array(chartData.length).fill(parseFloat(statistics.minus2sd)),
+                                    borderColor: '#16a34a',
+                                    borderDash: [3, 3],
+                                    pointRadius: 0,
+                                    borderWidth: 2
+                                },
+                                {
+                                    label: '+3SD',
+                                    data: new Array(chartData.length).fill(parseFloat(statistics.plus3sd)),
+                                    borderColor: '#dc2626',
+                                    borderDash: [2, 2],
+                                    pointRadius: 0,
+                                    borderWidth: 2
+                                },
+                                {
+                                    label: '-3SD',
+                                    data: new Array(chartData.length).fill(parseFloat(statistics.minus3sd)),
+                                    borderColor: '#dc2626',
+                                    borderDash: [2, 2],
+                                    pointRadius: 0,
+                                    borderWidth: 2
+                                }
+                            ] : [])
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: levelNames[level],
+                                    font: {
+                                        size: 16,
+                                        weight: 'bold'
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        afterLabel: function (context) {
+                                            if (context.datasetIndex === 0) {
+                                                const dataPoint = chartData[context.dataIndex];
+                                                const value = dataPoint.value;
+
+                                                // แสดงสถานะของจุดข้อมูล
+                                                let status = 'ปกติ (อยู่ในช่วง ±2SD)';
+                                                if (statistics) {
+                                                    const plus3sd = parseFloat(statistics.plus3sd);
+                                                    const minus3sd = parseFloat(statistics.minus3sd);
+                                                    const plus2sd = parseFloat(statistics.plus2sd);
+                                                    const minus2sd = parseFloat(statistics.minus2sd);
+
+                                                    if (value > plus3sd || value < minus3sd) {
+                                                        status = '⚠️ อยู่นอกช่วง ±3SD (สีแดง)';
+                                                    } else if (value > plus2sd || value < minus2sd) {
+                                                        status = '⚠️ อยู่นอกช่วง ±2SD (สีส้ม)';
+                                                    }
+                                                }
+
+                                                const labels = [
+                                                    `วันที่: ${dataPoint.date}`,
+                                                    `Lot: ${dataPoint.lot}`,
+                                                    `ยี่ห้อ: ${dataPoint.brand}`,
+                                                    `ผู้ทดสอบ: ${dataPoint.tester}`,
+                                                    `สถานะ: ${status}`
+                                                ];
+
+                                                // แสดงชื่อสถานีถ้าเลือก "ทุกหน่วยงาน"
+                                                if (selectedStation === 'all' && dataPoint.station) {
+                                                    labels.unshift(`หน่วยงาน: ${dataPoint.station}`);
+                                                }
+
+                                                return labels;
+                                            }
+                                            return '';
+                                        }
+                                    }
+                                },
+                                legend: {
+                                    display: true,
+                                    labels: {
+                                        filter: function (legendItem, chartData) {
+                                            // เพิ่ม legend สำหรับสีของจุด
+                                            return true;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: 'ลำดับการทดสอบ'
+                                    }
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: 'ค่าผลตรวจ (mg/dL)'
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    console.log('Chart created successfully for level:', level);
+
+                } catch (error) {
+                    console.error('Error creating chart for level:', level, error);
+                }
+            });
+        }
+
+        // ─── Blood Lactate Functions ───────────────────────────────────────────
+
+        function getLactateChartData(level) {
+            if (!processedData || !processedData.lactateData) return [];
+            const filteredByYear = filterDataByFiscalYear(processedData.lactateData, selectedFiscalYear);
+            const stationData = filterDataByStation(filteredByYear);
+            return stationData
+                .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate))
+                .map((item, index) => {
+                    const testDate = parseThaiDate(item.testDate);
+                    return {
+                        index: index + 1,
+                        date: formatThaiDate(testDate),
+                        value: item[level],
+                        lot: item.lot,
+                        brand: item.brand,
+                        tester: item.tester,
+                        station: item.station
+                    };
+                });
+        }
+
+        function getLactateStatistics(level) {
+            switch (selectedMeanSDMode) {
+                case 'custom': {
+                    const c = lactateMeanSD[level];
+                    if (!c) return null;
+                    return {
+                        mean: c.mean.toFixed(2),
+                        sd: c.sd.toFixed(2),
+                        cv: ((c.sd / c.mean) * 100).toFixed(1),
+                        plus2sd: (c.mean + 2 * c.sd).toFixed(2),
+                        minus2sd: (c.mean - 2 * c.sd).toFixed(2),
+                        plus3sd: (c.mean + 3 * c.sd).toFixed(2),
+                        minus3sd: (c.mean - 3 * c.sd).toFixed(2)
+                    };
+                }
+                case 'station': {
+                    const data = getLactateChartData(level);
+                    if (!data.length) return null;
+                    return calcStats(data.map(d => d.value));
+                }
+                case 'all': {
+                    if (!processedData || !processedData.lactateData) return null;
+                    const filtered = filterDataByFiscalYear(processedData.lactateData, selectedFiscalYear);
+                    return calcStats(filtered.map(d => d[level]));
+                }
+            }
+            return null;
+        }
+
+        function calcStats(rawValues) {
+            const values = rawValues.filter(v => v !== null && v !== undefined && !isNaN(v));
+            if (!values.length) return null;
+            const mean = values.reduce((s, v) => s + v, 0) / values.length;
+            const sd = Math.sqrt(values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / values.length);
+            return {
+                mean: mean.toFixed(2), sd: sd.toFixed(2),
+                cv: ((sd / mean) * 100).toFixed(1),
+                plus2sd: (mean + 2 * sd).toFixed(2), minus2sd: (mean - 2 * sd).toFixed(2),
+                plus3sd: (mean + 3 * sd).toFixed(2), minus3sd: (mean - 3 * sd).toFixed(2)
+            };
+        }
+
+        function toggleLactateTable() {
+            showLactateTable = !showLactateTable;
+            render();
+        }
+
+        function updateLactateCharts() {
+            const levelNames = { level1: 'Level 1 (Low)', level2: 'Level 2 (High)' };
+            ['level1', 'level2'].forEach(level => {
+                const chartData = getLactateChartData(level);
+                const statistics = getLactateStatistics(level);
+                if (!chartData.length) return;
+                const ctx = document.getElementById(`lactateChart_${level}`);
+                if (!ctx) return;
+                if (lactateCharts[level]) { lactateCharts[level].destroy(); lactateCharts[level] = null; }
+                try {
+                    const pointColors = getPointColors(chartData, statistics);
+                    const refLines = statistics ? [
+                        { label: 'Mean',  data: Array(chartData.length).fill(+statistics.mean),   borderColor: '#2563eb', borderDash: [5,5], pointRadius: 0, borderWidth: 2 },
+                        { label: '+2SD',  data: Array(chartData.length).fill(+statistics.plus2sd), borderColor: '#16a34a', borderDash: [3,3], pointRadius: 0, borderWidth: 2 },
+                        { label: '-2SD',  data: Array(chartData.length).fill(+statistics.minus2sd),borderColor: '#16a34a', borderDash: [3,3], pointRadius: 0, borderWidth: 2 },
+                        { label: '+3SD',  data: Array(chartData.length).fill(+statistics.plus3sd), borderColor: '#dc2626', borderDash: [2,2], pointRadius: 0, borderWidth: 2 },
+                        { label: '-3SD',  data: Array(chartData.length).fill(+statistics.minus3sd),borderColor: '#dc2626', borderDash: [2,2], pointRadius: 0, borderWidth: 2 }
+                    ] : [];
+                    lactateCharts[level] = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: chartData.map(d => d.index),
+                            datasets: [{
+                                label: 'ค่าผลตรวจ', data: chartData.map(d => d.value),
+                                borderColor: '#1f2937', backgroundColor: pointColors,
+                                pointBackgroundColor: pointColors, pointBorderColor: pointColors,
+                                pointRadius: 4, pointHoverRadius: 6, borderWidth: 2, showLine: true
+                            }, ...refLines]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            plugins: {
+                                title: { display: true, text: `Blood Lactate – ${levelNames[level]}`, font: { size: 16, weight: 'bold' } },
+                                tooltip: {
+                                    callbacks: {
+                                        afterLabel(context) {
+                                            if (context.datasetIndex !== 0) return '';
+                                            const dp = chartData[context.dataIndex];
+                                            let status = 'ปกติ (±2SD)';
+                                            if (statistics) {
+                                                if (dp.value > +statistics.plus3sd || dp.value < +statistics.minus3sd) status = '⚠️ นอกช่วง ±3SD';
+                                                else if (dp.value > +statistics.plus2sd || dp.value < +statistics.minus2sd) status = '⚠️ นอกช่วง ±2SD';
+                                            }
+                                            const lines = [`วันที่: ${dp.date}`, `Lot: ${dp.lot}`, `ยี่ห้อ: ${dp.brand}`, `ผู้ทดสอบ: ${dp.tester}`, `สถานะ: ${status}`];
+                                            if (selectedStation === 'all' && dp.station) lines.unshift(`หน่วยงาน: ${dp.station}`);
+                                            return lines;
+                                        }
+                                    }
+                                },
+                                legend: { display: true }
+                            },
+                            scales: {
+                                x: { title: { display: true, text: 'ลำดับการทดสอบ' } },
+                                y: { title: { display: true, text: 'ค่าผลตรวจ (mmol/L)' } }
+                            }
+                        }
+                    });
+                } catch (err) {
+                    console.error('Error creating lactate chart:', level, err);
+                }
+            });
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+
+        // Export Functions
+        function exportData() {
+            const levels = ['level1', 'level2', 'level3'];
+            let csvContent = '';
+
+            levels.forEach(level => {
+                const chartData = getChartData(level);
+                if (chartData.length > 0) {
+                    csvContent += `\n${level.toUpperCase()}\n`;
+                    csvContent += 'ลำดับ,วันที่,ค่าผลตรวจ,Lot,ยี่ห้อ,ผู้ทดสอบ\n';
+                    chartData.forEach(row => {
+                        csvContent += `${row.index},${row.date},${row.value},${row.lot},${row.brand},${row.tester}\n`;
+                    });
+                }
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            const fiscalYearSuffix = selectedFiscalYear === 'all' ? 'all' : selectedFiscalYear;
+            link.download = `IQC_${selectedStation}_FY${fiscalYearSuffix}_${selectedMeanSDMode}_${new
+                Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+        }
+
+        // Render Function
+        function render() {
+            const root = document.getElementById('root');
+
+            if (loading && !processedData) {
+                root.innerHTML = `
     <div class="flex items-center justify-center h-screen bg-gray-50">
         <div class="flex items-center space-x-2">
             <div class="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -800,12 +949,12 @@
         </div>
     </div>
     `;
-    return;
-    }
+                return;
+            }
 
-    const fiscalYearOptions = getFiscalYearOptions();
+            const fiscalYearOptions = getFiscalYearOptions();
 
-    root.innerHTML = `
+            root.innerHTML = `
     <div class="space-y-6 p-6 bg-gray-50 min-h-screen responsive-container">
         <!-- Header -->
         <div class="text-center">
@@ -831,7 +980,7 @@
                 ` : ''}
 
                 <div class="flex items-center space-x-2">
-                    <button onclick="fetchData()" ${loading ? 'disabled' : '' }
+                    <button onclick="fetchData()" ${loading ? 'disabled' : ''}
                         class="flex items-center px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 transition-all">
                         <span class="w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}">${RefreshIcon}</span>
                         รีเฟรช
@@ -857,31 +1006,31 @@
                     <div class="flex gap-2 flex-wrap">
                         <select onchange="setSelectedStation(this.value)"
                             class="px-3 py-2 border border-gray-300 rounded transition-all">
-                            <option value="all" ${selectedStation==='all' ? 'selected' : '' }>
+                            <option value="all" ${selectedStation === 'all' ? 'selected' : ''}>
                                 ทุกหน่วยงาน
                             </option>
-                            <option value="group_hospital" ${selectedStation==='group_hospital' ? 'selected' : '' }>
+                            <option value="group_hospital" ${selectedStation === 'group_hospital' ? 'selected' : ''}>
                                 กลุ่ม รพ.ม่วงสามสิบ
                             </option>
-                            <option value="group_other" ${selectedStation==='group_other' ? 'selected' : '' }>
+                            <option value="group_other" ${selectedStation === 'group_other' ? 'selected' : ''}>
                                 กลุ่มสถานีอนามัย
                             </option>
                             <option disabled>──────────</option>
                             ${processedData?.stations.map(station =>
-                            `<option value="${station}" ${station===selectedStation ? 'selected' : '' }>
+                `<option value="${station}" ${station === selectedStation ? 'selected' : ''}>
                                 ${station}
                             </option>`
-                            ).join('')}
+            ).join('')}
                         </select>
 
                         <select onchange="setSelectedFiscalYear(this.value)"
                             class="px-3 py-2 border border-gray-300 rounded transition-all">
-                            <option value="all" ${selectedFiscalYear==='all' ? 'selected' : '' }>ทุกปีงบประมาณ</option>
+                            <option value="all" ${selectedFiscalYear === 'all' ? 'selected' : ''}>ทุกปีงบประมาณ</option>
                             ${fiscalYearOptions.map(year =>
-                            `<option value="${year}" ${year.toString()===selectedFiscalYear ? 'selected' : '' }>
+                `<option value="${year}" ${year.toString() === selectedFiscalYear ? 'selected' : ''}>
                                 ปีงบประมาณ ${year}
                             </option>`
-                            ).join('')}
+            ).join('')}
                         </select>
 
                         <button onclick="exportData()"
@@ -914,22 +1063,22 @@
                         <!-- Radio Button Options -->
                         <div class="flex flex-col sm:flex-row gap-4">
                             <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="radio" name="meanSDMode" value="custom" ${selectedMeanSDMode==='custom'
-                                    ? 'checked' : '' } onchange="setSelectedMeanSDMode(this.value)"
+                                <input type="radio" name="meanSDMode" value="custom" ${selectedMeanSDMode === 'custom'
+                    ? 'checked' : ''} onchange="setSelectedMeanSDMode(this.value)"
                                     class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
                                 <span class="text-sm font-medium text-gray-700">กำหนดเอง</span>
                             </label>
 
                             <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="radio" name="meanSDMode" value="station" ${selectedMeanSDMode==='station'
-                                    ? 'checked' : '' } onchange="setSelectedMeanSDMode(this.value)"
+                                <input type="radio" name="meanSDMode" value="station" ${selectedMeanSDMode === 'station'
+                    ? 'checked' : ''} onchange="setSelectedMeanSDMode(this.value)"
                                     class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
                                 <span class="text-sm font-medium text-gray-700">ใช้เฉพาะหน่วยงานที่เลือก</span>
                             </label>
 
                             <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="radio" name="meanSDMode" value="all" ${selectedMeanSDMode==='all'
-                                    ? 'checked' : '' } onchange="setSelectedMeanSDMode(this.value)"
+                                <input type="radio" name="meanSDMode" value="all" ${selectedMeanSDMode === 'all'
+                    ? 'checked' : ''} onchange="setSelectedMeanSDMode(this.value)"
                                     class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
                                 <span class="text-sm font-medium text-gray-700">ใช้ข้อมูลทุกหน่วยงานรวมกัน</span>
                             </label>
@@ -1003,14 +1152,14 @@
                     ${['level1', 'level2', 'level3'].map(level => {
                         const levelNames = {
                             'level1': 'Level 1 (Low)',
-                            'level2': 'Level 2 (Normal)', 
+                            'level2': 'Level 2 (Normal)',
                             'level3': 'Level 3 (High)'
                         };
                         const chartData = getChartData(level);
                         const statistics = getStatistics(level);
-                        
+
                         if (chartData.length === 0) return '';
-                        
+
                         return `
                         <div class="mb-8">
                             <h3 class="text-lg font-semibold text-blue-600 mb-3">${levelNames[level]}</h3>
@@ -1059,8 +1208,8 @@
                                 </thead>
                                 <tbody>
                                     ${chartData.map((item, index) => {
-                                        const colorStatus = getRowColorAndStatus(item.value, statistics);
-                                        return `
+                            const colorStatus = getRowColorAndStatus(item.value, statistics);
+                            return `
                                         <tr class="hover:bg-gray-50 ${colorStatus.bgColor}">
                                             <td class="border border-gray-300 p-2 text-center font-medium">${item.index}</td>
                                             <td class="border border-gray-300 p-2 text-center">${item.date}</td>
@@ -1068,9 +1217,9 @@
                                                 ${item.value !== null && item.value !== undefined ? item.value.toFixed(1) : '-'}
                                             </td>
                                             <td class="border border-gray-300 p-2 text-center">
-                                                <span class="px-2 py-1 rounded text-xs font-medium ${colorStatus.color === 'text-red-800' ? 'bg-red-200 text-red-800' : 
-                                                    colorStatus.color === 'text-orange-800' ? 'bg-orange-200 text-orange-800' : 
-                                                    'bg-gray-200 text-gray-800'}">
+                                                <span class="px-2 py-1 rounded text-xs font-medium ${colorStatus.color === 'text-red-800' ? 'bg-red-200 text-red-800' :
+                                    colorStatus.color === 'text-orange-800' ? 'bg-orange-200 text-orange-800' :
+                                        'bg-gray-200 text-gray-800'}">
                                                     ${colorStatus.status}
                                                 </span>
                                             </td>
@@ -1080,7 +1229,7 @@
                                             <td class="border border-gray-300 p-2 text-center">${item.tester}</td>
                                         </tr>
                                         `;
-                                    }).join('')}
+                        }).join('')}
                                 </tbody>
                             </table>
                         </div>
@@ -1094,15 +1243,15 @@
         <!-- Levey-Jennings Charts Vertical -->
         <div class="space-y-6">
             ${['level1', 'level2', 'level3'].map(level => {
-            const levelNames = {
-            'level1': 'Level 1 (Low)',
-            'level2': 'Level 2 (Normal)',
-            'level3': 'Level 3 (High)'
-            };
-            const statistics = getStatistics(level);
-            const chartData = getChartData(level);
+                        const levelNames = {
+                            'level1': 'Level 1 (Low)',
+                            'level2': 'Level 2 (Normal)',
+                            'level3': 'Level 3 (High)'
+                        };
+                        const statistics = getStatistics(level);
+                        const chartData = getChartData(level);
 
-            return `
+                        return `
             <div class="bg-white rounded-lg shadow">
                 <div class="p-6">
                     <h3 class="text-lg font-semibold text-blue-700 mb-4 text-center">
@@ -1144,7 +1293,7 @@
                 </div>
             </div>
             `;
-            }).join('')}
+                    }).join('')}
         </div>
 
         <!-- Pregnancy Test Table -->
@@ -1170,14 +1319,14 @@
                         </thead>
                         <tbody>
                             ${filterDataByFiscalYear(processedData.pregnancyData, selectedFiscalYear)
-                            .filter(item => {
-                                if (selectedStation === 'all') return true;
-                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
-                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
-                                return item.station === selectedStation;
-                            })
-                            .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate))
-                            .map((item, index) => {
+                        .filter(item => {
+                            if (selectedStation === 'all') return true;
+                            if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                            if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                            return item.station === selectedStation;
+                        })
+                        .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate))
+                        .map((item, index) => {
                             const level1OK = item.level1 === 'Negative';
                             const level2OK = item.level2 === 'Positive';
                             const allOK = level1OK && level2OK;
@@ -1210,11 +1359,11 @@
                                 <td class="border border-gray-300 p-2 text-sm">
                                     ${allOK ? 'การควบคุมคุณภาพปกติ' :
                                     (!level1OK && !level2OK) ? 'Level 1 และ 2 ผิดปกติ' :
-                                    !level1OK ? 'Level 1 ผิดปกติ' : 'Level 2 ผิดปกติ'}
+                                        !level1OK ? 'Level 1 ผิดปกติ' : 'Level 2 ผิดปกติ'}
                                 </td>
                             </tr>
                             `;
-                            }).join('')}
+                        }).join('')}
                         </tbody>
                     </table>
                 </div>
@@ -1244,35 +1393,35 @@
                         </thead>
                         <tbody>
                             ${(() => {
-                                // กรองตามปีงบประมาณ
-                                const yearFiltered = filterDataByFiscalYear(processedData.urineData, selectedFiscalYear);
-                                
-                                // กรองเฉพาะที่มีข้อมูล Protein ก่อน
-                                const withProtein = yearFiltered.filter(item => item.proteinLevel1 || item.proteinLevel2);
-                                
-                                // จากนั้นค่อยกรองตามหน่วยงาน
-                                const filteredData = withProtein
-                                    .filter(item => {
-                                        if (selectedStation === 'all') return true;
-                                        if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
-                                        if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
-                                        return item.station === selectedStation;
-                                    })
-                                    .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate));
-                                
-                                if (filteredData.length === 0) {
-                                    return `<tr><td colspan="9" class="border border-gray-300 p-4 text-center text-gray-500">ไม่พบข้อมูล Urine Protein สำหรับหน่วยงานและปีงบประมาณที่เลือก</td></tr>`;
-                                }
-                                
-                                return filteredData.map((item, index) => {
-                                    const level1Value = (item.proteinLevel1 || '').toString().trim();
-                                    const level2Value = (item.proteinLevel2 || '').toString().trim();
-                                    
-                                    const level1OK = level1Value.toLowerCase() === 'negative';
-                                    const level2OK = ['1+', '2+', '3+', '4+', '1', '2', '3', '4'].includes(level2Value);
-                                    const allOK = level1OK && level2OK;
+                        // กรองตามปีงบประมาณ
+                        const yearFiltered = filterDataByFiscalYear(processedData.urineData, selectedFiscalYear);
 
-                                    return `
+                        // กรองเฉพาะที่มีข้อมูล Protein ก่อน
+                        const withProtein = yearFiltered.filter(item => item.proteinLevel1 || item.proteinLevel2);
+
+                        // จากนั้นค่อยกรองตามหน่วยงาน
+                        const filteredData = withProtein
+                            .filter(item => {
+                                if (selectedStation === 'all') return true;
+                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                                return item.station === selectedStation;
+                            })
+                            .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate));
+
+                        if (filteredData.length === 0) {
+                            return `<tr><td colspan="9" class="border border-gray-300 p-4 text-center text-gray-500">ไม่พบข้อมูล Urine Protein สำหรับหน่วยงานและปีงบประมาณที่เลือก</td></tr>`;
+                        }
+
+                        return filteredData.map((item, index) => {
+                            const level1Value = (item.proteinLevel1 || '').toString().trim();
+                            const level2Value = (item.proteinLevel2 || '').toString().trim();
+
+                            const level1OK = level1Value.toLowerCase() === 'negative';
+                            const level2OK = ['1+', '2+', '3+', '4+', '1', '2', '3', '4'].includes(level2Value);
+                            const allOK = level1OK && level2OK;
+
+                            return `
                                     <tr class="hover:bg-gray-50">
                                         <td class="border border-gray-300 p-2 font-medium">${item.station || '-'}</td>
                                         <td class="border border-gray-300 p-2">${formatThaiDate(parseThaiDate(item.testDate))}</td>
@@ -1296,13 +1445,13 @@
                                         </td>
                                         <td class="border border-gray-300 p-2 text-sm">
                                             ${allOK ? 'การควบคุมคุณภาพปกติ' :
-                                            (!level1OK && !level2OK) ? 'Level 1 และ 2 ผิดปกติ' :
-                                            !level1OK ? 'Level 1 ควรเป็น Negative' : 'Level 2 ควรเป็น Positive'}
+                                    (!level1OK && !level2OK) ? 'Level 1 และ 2 ผิดปกติ' :
+                                        !level1OK ? 'Level 1 ควรเป็น Negative' : 'Level 2 ควรเป็น Positive'}
                                         </td>
                                     </tr>
                                     `;
-                                }).join('');
-                            })()}
+                        }).join('');
+                    })()}
                         </tbody>
                     </table>
                 </div>
@@ -1331,54 +1480,202 @@
                             </tr>
                         </thead>
                         <tbody>
-                            ${filterDataByFiscalYear(processedData.urineData, selectedFiscalYear)
-                            .filter(item => selectedStation === 'all' || item.station === selectedStation)
-                            .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate))
-                            .map((item, index) => {
-                            const level1OK = item.sugarLevel1 === 'Negative';
-                            const level2OK = ['1+', '2+', '3+', '4+'].includes(item.sugarLevel2);
+    ${(() => {
+                        // 1. กรองตามปีงบประมาณ
+                        const yearFiltered = filterDataByFiscalYear(processedData.urineData, selectedFiscalYear);
+
+                        // 2. กรองเฉพาะที่มีข้อมูล Sugar ก่อน
+                        const withSugar = yearFiltered.filter(item => item.sugarLevel1 || item.sugarLevel2);
+
+                        // 3. จากนั้นค่อยกรองตามหน่วยงาน
+                        const filteredData = withSugar
+                            .filter(item => {
+                                if (selectedStation === 'all') return true;
+                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                                return item.station === selectedStation;
+                            })
+                            .sort((a, b) => parseThaiDate(a.testDate) - parseThaiDate(b.testDate));
+
+                        // 4. ถ้าไม่มีข้อมูล แสดงข้อความ
+                        if (filteredData.length === 0) {
+                            return `<tr><td colspan="9" class="border border-gray-300 p-4 text-center text-gray-500">ไม่พบข้อมูล Urine Sugar สำหรับหน่วยงานและปีงบประมาณที่เลือก</td></tr>`;
+                        }
+
+                        // 5. แสดงข้อมูล
+                        return filteredData.map((item, index) => {
+                            const level1Value = (item.sugarLevel1 || '').toString().trim();
+                            const level2Value = (item.sugarLevel2 || '').toString().trim();
+
+                            const level1OK = level1Value.toLowerCase() === 'negative';
+                            const level2OK = ['1+', '2+', '3+', '4+'].includes(level2Value);
                             const allOK = level1OK && level2OK;
 
                             return `
-                            <tr class="hover:bg-gray-50">
-                                <td class="border border-gray-300 p-2 font-medium">${item.station || '-'}</td>
-                                <td class="border border-gray-300 p-2">${formatThaiDate(parseThaiDate(item.testDate))}
-                                </td>
-                                <td class="border border-gray-300 p-2">${item.brand || '-'}</td>
-                                <td class="border border-gray-300 p-2">${item.lot || '-'}</td>
-                                <td class="border border-gray-300 p-2">${item.openDate ?
-                                    formatThaiDate(parseThaiDate(item.openDate)) : '-'}</td>
-                                <td class="border border-gray-300 p-2 text-center">
-                                    <span
-                                        class="px-2 py-1 rounded text-sm ${level1OK ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
-                                        ${item.sugarLevel1 || '-'}
-                                    </span>
-                                </td>
-                                <td class="border border-gray-300 p-2 text-center">
-                                    <span
-                                        class="px-2 py-1 rounded text-sm ${level2OK ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
-                                        ${item.sugarLevel2 || '-'}
-                                    </span>
-                                </td>
-                                <td class="border border-gray-300 p-2 text-center">
-                                    <span
-                                        class="px-2 py-1 rounded text-sm font-medium ${allOK ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
-                                        ${allOK ? '✓ ผ่าน' : '⚠ ต้องตรวจสอบ'}
-                                    </span>
-                                </td>
-                                <td class="border border-gray-300 p-2 text-sm">
-                                    ${allOK ? 'การควบคุมคุณภาพปกติ' :
+            <tr class="hover:bg-gray-50">
+                <td class="border border-gray-300 p-2 font-medium">${item.station || '-'}</td>
+                <td class="border border-gray-300 p-2">${formatThaiDate(parseThaiDate(item.testDate))}</td>
+                <td class="border border-gray-300 p-2">${item.brand || '-'}</td>
+                <td class="border border-gray-300 p-2">${item.lot || '-'}</td>
+                <td class="border border-gray-300 p-2">${item.openDate ? formatThaiDate(parseThaiDate(item.openDate)) : '-'}</td>
+                <td class="border border-gray-300 p-2 text-center">
+                    <span class="px-2 py-1 rounded text-sm ${level1OK ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
+                        ${level1Value || '-'}
+                    </span>
+                </td>
+                <td class="border border-gray-300 p-2 text-center">
+                    <span class="px-2 py-1 rounded text-sm ${level2OK ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
+                        ${level2Value || '-'}
+                    </span>
+                </td>
+                <td class="border border-gray-300 p-2 text-center">
+                    <span class="px-2 py-1 rounded text-sm font-medium ${allOK ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                        ${allOK ? '✓ ผ่าน' : '⚠ ต้องตรวจสอบ'}
+                    </span>
+                </td>
+                <td class="border border-gray-300 p-2 text-sm">
+                    ${allOK ? 'การควบคุมคุณภาพปกติ' :
                                     (!level1OK && !level2OK) ? 'Level 1 และ 2 ผิดปกติ' :
-                                    !level1OK ? 'Level 1 ควรเป็น Negative' : 'Level 2 ควรเป็น Positive'}
-                                </td>
-                            </tr>
-                            `;
-                            }).join('')}
-                        </tbody>
+                                        !level1OK ? 'Level 1 ควรเป็น Negative' : 'Level 2 ควรเป็น Positive'}
+                </td>
+            </tr>
+            `;
+                        }).join('');
+                    })()}
+</tbody>
+
                     </table>
                 </div>
             </div>
         </div>
+        ` : ''}
+
+        <!-- Blood Lactate L-J Charts -->
+        ${processedData ? `
+        <div class="bg-white rounded-lg shadow">
+            <div class="p-6">
+                <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mb-4 responsive-flex">
+                    <h2 class="text-xl font-semibold text-red-700">Levey-Jennings Charts: Blood Lactate</h2>
+                    <button onclick="toggleLactateTable()"
+                        class="flex items-center px-3 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-all ${showLactateTable ? 'bg-red-100 border-red-300' : ''}">
+                        <span class="w-4 h-4 mr-1"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
+                        ${showLactateTable ? 'ซ่อนตาราง' : 'แสดงตาราง'}
+                    </button>
+                </div>
+
+                ${selectedMeanSDMode === 'custom' ? `
+                <div class="bg-red-50 p-4 rounded-lg mb-4">
+                    <h4 class="font-semibold text-red-700 mb-3">ค่า Mean และ SD ที่กำหนดไว้ (Blood Lactate):</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div class="bg-white p-3 rounded border">
+                            <h5 class="font-medium text-gray-600 mb-2">Level 1 (Low)</h5>
+                            <div>Mean: <span class="font-mono">${lactateMeanSD.level1.mean}</span></div>
+                            <div>SD: <span class="font-mono">${lactateMeanSD.level1.sd}</span></div>
+                        </div>
+                        <div class="bg-white p-3 rounded border">
+                            <h5 class="font-medium text-gray-600 mb-2">Level 2 (High)</h5>
+                            <div>Mean: <span class="font-mono">${lactateMeanSD.level2.mean}</span></div>
+                            <div>SD: <span class="font-mono">${lactateMeanSD.level2.sd}</span></div>
+                        </div>
+                    </div>
+                    <p class="text-xs text-red-600 mt-2">* ค่าเหล่านี้โหลดจาก Google Sheets (Config_MeanSD)</p>
+                </div>
+                ` : ''}
+
+                ${(function() {
+                    if (!processedData.lactateData || processedData.lactateData.length === 0) {
+                        return `<div class="text-center py-8 text-gray-400 text-sm">ยังไม่มีข้อมูล Blood Lactate — กรุณาอัปเดต Google Apps Script ก่อน</div>`;
+                    }
+                    return '';
+                })()}
+            </div>
+        </div>
+
+        ${showLactateTable && processedData.lactateData && processedData.lactateData.length > 0 ? `
+        <div class="bg-white rounded-lg shadow">
+            <div class="p-6">
+                <h2 class="text-xl font-semibold text-red-700 mb-4">ตารางข้อมูล Blood Lactate</h2>
+                <div class="overflow-x-auto">
+                    ${['level1', 'level2'].map(level => {
+                        const levelNames = { level1: 'Level 1 (Low)', level2: 'Level 2 (High)' };
+                        const chartData = getLactateChartData(level);
+                        const statistics = getLactateStatistics(level);
+                        if (!chartData.length) return '';
+                        return `
+                        <div class="mb-8">
+                            <h3 class="text-lg font-semibold text-red-600 mb-3">${levelNames[level]}</h3>
+                            ${statistics ? `
+                            <div class="mb-4 p-3 bg-red-50 rounded-lg">
+                                <div class="grid grid-cols-2 md:grid-cols-6 gap-2 text-sm">
+                                    <div class="text-center"><div class="font-semibold text-red-700">Mean</div><div>${statistics.mean}</div></div>
+                                    <div class="text-center"><div class="font-semibold text-red-700">SD</div><div>${statistics.sd}</div></div>
+                                    <div class="text-center"><div class="font-semibold text-green-700">±2SD</div><div>${statistics.minus2sd} – ${statistics.plus2sd}</div></div>
+                                    <div class="text-center"><div class="font-semibold text-red-700">±3SD</div><div>${statistics.minus3sd} – ${statistics.plus3sd}</div></div>
+                                    <div class="text-center"><div class="font-semibold text-blue-700">CV%</div><div>${statistics.cv}</div></div>
+                                    <div class="text-center"><div class="font-semibold text-blue-700">จำนวน</div><div>${chartData.length}</div></div>
+                                </div>
+                            </div>` : ''}
+                            <table class="w-full border-collapse border border-gray-300 mb-6">
+                                <thead><tr class="bg-red-100">
+                                    <th class="border border-gray-300 p-2">ลำดับ</th>
+                                    <th class="border border-gray-300 p-2">วันที่ทดสอบ</th>
+                                    <th class="border border-gray-300 p-2">ค่าผลตรวจ (mmol/L)</th>
+                                    <th class="border border-gray-300 p-2">สถานะ</th>
+                                    <th class="border border-gray-300 p-2">หน่วยงาน</th>
+                                    <th class="border border-gray-300 p-2">ยี่ห้อ</th>
+                                    <th class="border border-gray-300 p-2">Lot</th>
+                                    <th class="border border-gray-300 p-2">ผู้ทดสอบ</th>
+                                </tr></thead>
+                                <tbody>
+                                    ${chartData.map(item => {
+                                        const cs = getRowColorAndStatus(item.value, statistics);
+                                        return `<tr class="hover:bg-gray-50 ${cs.bgColor}">
+                                            <td class="border border-gray-300 p-2 text-center font-medium">${item.index}</td>
+                                            <td class="border border-gray-300 p-2 text-center">${item.date}</td>
+                                            <td class="border border-gray-300 p-2 text-center font-bold ${cs.color}">${item.value !== null && item.value !== undefined ? (+item.value).toFixed(2) : '-'}</td>
+                                            <td class="border border-gray-300 p-2 text-center"><span class="px-2 py-1 rounded text-xs font-medium ${cs.color === 'text-red-800' ? 'bg-red-200 text-red-800' : cs.color === 'text-orange-800' ? 'bg-orange-200 text-orange-800' : 'bg-gray-200 text-gray-800'}">${cs.status}</span></td>
+                                            <td class="border border-gray-300 p-2 text-center">${item.station}</td>
+                                            <td class="border border-gray-300 p-2 text-center">${item.brand}</td>
+                                            <td class="border border-gray-300 p-2 text-center">${item.lot}</td>
+                                            <td class="border border-gray-300 p-2 text-center">${item.tester}</td>
+                                        </tr>`;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>
+        </div>
+        ` : ''}
+
+        ${processedData.lactateData && processedData.lactateData.length > 0 ? `
+        <div class="space-y-6">
+            ${['level1', 'level2'].map(level => {
+                const levelNames = { level1: 'Level 1 (Low)', level2: 'Level 2 (High)' };
+                const statistics = getLactateStatistics(level);
+                const chartData = getLactateChartData(level);
+                return `
+                <div class="bg-white rounded-lg shadow">
+                    <div class="p-6">
+                        <h3 class="text-lg font-semibold text-red-700 mb-4 text-center">Blood Lactate – ${levelNames[level]}</h3>
+                        ${chartData.length > 0 ? `
+                        <div class="space-y-4">
+                            ${statistics ? `
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 p-3 bg-red-50 rounded-lg text-sm">
+                                <div class="text-center"><div class="font-semibold text-red-700">Mean</div><div>${statistics.mean}</div></div>
+                                <div class="text-center"><div class="font-semibold text-red-700">SD</div><div>${statistics.sd}</div></div>
+                                <div class="text-center"><div class="font-semibold text-red-700">CV%</div><div>${statistics.cv}</div></div>
+                                <div class="text-center"><div class="font-semibold text-red-700">Points</div><div>${chartData.length}</div></div>
+                            </div>` : ''}
+                            <div class="chart-container"><canvas id="lactateChart_${level}"></canvas></div>
+                        </div>
+                        ` : `<div class="text-center py-8 text-gray-500 text-sm">ไม่พบข้อมูลสำหรับสถานีที่เลือก</div>`}
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>
+        ` : ''}
         ` : ''}
 
         <!-- Summary Statistics -->
@@ -1390,23 +1687,23 @@
                     <div class="bg-blue-50 p-4 rounded-lg">
                         <h3 class="font-semibold text-blue-700 mb-2">Glucose Strip</h3>
                         <p class="text-2xl font-bold text-blue-800">${filterDataByFiscalYear(processedData.glucoseData,
-                            selectedFiscalYear).filter(item => {
-                                if (selectedStation === 'all') return true;
-                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
-                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
-                                return item.station === selectedStation;
-                            }).length}</p>
+                        selectedFiscalYear).filter(item => {
+                            if (selectedStation === 'all') return true;
+                            if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                            if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                            return item.station === selectedStation;
+                        }).length}</p>
                         <p class="text-sm text-blue-600">รายการทดสอบ</p>
                     </div>
                     <div class="bg-purple-50 p-4 rounded-lg">
                         <h3 class="font-semibold text-purple-700 mb-2">Pregnancy Test</h3>
                         <p class="text-2xl font-bold text-purple-800">
                             ${filterDataByFiscalYear(processedData.pregnancyData, selectedFiscalYear).filter(item => {
-                                if (selectedStation === 'all') return true;
-                                if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
-                                if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
-                                return item.station === selectedStation;
-                            }).length}</p>
+                            if (selectedStation === 'all') return true;
+                            if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                            if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                            return item.station === selectedStation;
+                        }).length}</p>
                         <p class="text-sm text-purple-600">รายการทดสอบ</p>
                     </div>
                     <div class="bg-green-50 p-4 rounded-lg">
@@ -1420,6 +1717,16 @@
                             }).length}</p>
                         <p class="text-sm text-green-600">รายการทดสอบ</p>
                     </div>
+                    <div class="bg-red-50 p-4 rounded-lg">
+                        <h3 class="font-semibold text-red-700 mb-2">Blood Lactate</h3>
+                        <p class="text-2xl font-bold text-red-800">${processedData.lactateData ? filterDataByFiscalYear(processedData.lactateData, selectedFiscalYear).filter(item => {
+                            if (selectedStation === 'all') return true;
+                            if (selectedStation === 'group_hospital') return item.station && item.station.includes('รพ.ม่วงสามสิบ');
+                            if (selectedStation === 'group_other') return item.station && !item.station.includes('รพ.ม่วงสามสิบ');
+                            return item.station === selectedStation;
+                        }).length : 0}</p>
+                        <p class="text-sm text-red-600">รายการทดสอบ</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1427,41 +1734,42 @@
     </div>
     `;
 
-    // Update charts after render
-    setTimeout(() => {
-    updateCharts();
-    }, 100);
-    }
+            // Update charts after render
+            setTimeout(() => {
+                updateCharts();
+                updateLactateCharts();
+            }, 100);
+        }
 
-    // Initialize App
-    async function initApp() {
-    // Set empty data initially
-    setProcessedData(mockData);
-    setLoading(true);
+        // Initialize App
+        async function initApp() {
+            // Set empty data initially
+            setProcessedData(mockData);
+            setLoading(true);
 
-    // โหลด config ก่อน
-    console.log('Loading configuration...');
-    await loadConfig();
+            // โหลด config ก่อน
+            console.log('Loading configuration...');
+            await loadConfig();
 
-    // Start auto-refresh
-    if (autoRefresh) {
-    setInterval(() => {
-    if (autoRefresh) {
-    fetchData(false);
-    }
-    }, 30000);
-    }
+            // Start auto-refresh
+            if (autoRefresh) {
+                setInterval(() => {
+                    if (autoRefresh) {
+                        fetchData(false);
+                    }
+                }, 30000);
+            }
 
-    // Try to fetch real data from API
-    await fetchData(true);
-    }
+            // Try to fetch real data from API
+            await fetchData(true);
+        }
 
-    // Start the app when DOM is ready
-    if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initApp);
-    } else {
-    initApp();
-    }
+        // Start the app when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initApp);
+        } else {
+            initApp();
+        }
     </script>
 </body>
 
