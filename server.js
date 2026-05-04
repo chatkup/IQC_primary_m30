@@ -111,12 +111,39 @@ app.get('/api/config', async (req, res) => {
   }
 });
 
+// Form submission endpoint — receives JSON from IQC_form, forwards to GAS doPost
+app.post('/api/submit', async (req, res) => {
+  try {
+    if (!process.env.GOOGLE_SCRIPT_URL) {
+      throw new Error('GOOGLE_SCRIPT_URL not configured');
+    }
+    const response = await fetch(process.env.GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'IQC-Proxy-Server/1.0'
+      },
+      body: JSON.stringify(req.body),
+      timeout: 30000
+    });
+    if (!response.ok) {
+      throw new Error(`Google Apps Script error: ${response.status}`);
+    }
+    const data = await response.json();
+    console.log('✅ Form submission forwarded to GAS');
+    res.json(data);
+  } catch (error) {
+    console.error('❌ Error in /api/submit:', error.message);
+    res.status(500).json({ success: false, error: 'Failed to submit data', details: error.message });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
     error: 'Endpoint not found',
-    available_endpoints: ['/health', '/api/iqc', '/api/config']
+    available_endpoints: ['/health', '/api/iqc', '/api/config', '/api/submit']
   });
 });
 
